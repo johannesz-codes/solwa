@@ -130,3 +130,7 @@ dmypy.json
 
 # IDE stuff
 .idea/
+
+# MATLAB / generated data
+*.mat
+
