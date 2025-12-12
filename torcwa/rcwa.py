@@ -152,8 +152,8 @@ class rcwa:
             - mu: relative permeability
         '''
 
-        is_eps_homogenous = (type(eps) == float) or (type(eps) == complex) or (eps.dim() == 0) or ((eps.dim() == 1) and eps.shape[0] == 1)
-        is_mu_homogenous = (type(mu) == float) or (type(mu) == complex) or (mu.dim() == 0) or ((mu.dim() == 1) and mu.shape[0] == 1)
+        is_eps_homogenous = isinstance(eps, float) or isinstance(eps, complex) or (eps.dim() == 0) or ((eps.dim() == 1) and eps.shape[0] == 1)
+        is_mu_homogenous = isinstance(mu, float) or isinstance(mu, float) or (mu.dim() == 0) or ((mu.dim() == 1) and mu.shape[0] == 1)
         
         self.eps_conv.append(eps*torch.eye(self.order_N,dtype=self._dtype,device=self._device) if is_eps_homogenous else self._material_conv(eps))
         self.mu_conv.append(mu*torch.eye(self.order_N,dtype=self._dtype,device=self._device) if is_mu_homogenous else self._material_conv(mu))
@@ -608,7 +608,7 @@ class rcwa:
             - [Ex, Ey, Ez] (list[torch.Tensor]), [Hx, Hy, Hz] (list[torch.Tensor])
         '''
             
-        if type(x_axis) != torch.Tensor or type(z_axis) != torch.Tensor:
+        if not isinstance(x_axis, torch.Tensor) or not isinstance(z_axis, torch.Tensor):
             warnings.warn('x and z axis must be torch.Tensor type. Return None.',UserWarning)
             return None
 
@@ -787,7 +787,7 @@ class rcwa:
             - [Ex, Ey, Ez] (list[torch.Tensor]), [Hx, Hy, Hz] (list[torch.Tensor])
         '''
 
-        if type(y_axis) != torch.Tensor or type(z_axis) != torch.Tensor:
+        if not isinstance(y_axis, torch.Tensor) or not isinstance(z_axis, torch.Tensor):
             warnings.warn('y and z axis must be torch.Tensor type. Return None.',UserWarning)
             return None
 
@@ -972,7 +972,7 @@ class rcwa:
             - [Ex, Ey, Ez] (list[torch.Tensor]), [Hx, Hy, Hz] (list[torch.Tensor])
         '''
 
-        if type(layer_num) != int:
+        if not isinstance(layer_num, int):
             warnings.warn('Parameter "layer_num" must be int type. Return None.',UserWarning)
             return None
 
@@ -980,7 +980,7 @@ class rcwa:
             warnings.warn('Layer number is out of range. Return None.',UserWarning)
             return None
 
-        if type(x_axis) != torch.Tensor or type(y_axis) != torch.Tensor:
+        if not isinstance(x_axis, torch.Tensor) or not isinstance(y_axis, torch.Tensor):
             warnings.warn('x and y axis must be torch.Tensor type. Return None.',UserWarning)
             return None
         
@@ -1245,7 +1245,7 @@ class rcwa:
         phase = torch.diag(torch.exp(1.j*self.omega*self.kz_norm[-1]*self.thickness[-1]))
 
         Pinv_tmp = torch.linalg.inv(self.P[-1])
-        if self.avoid_Pinv_instability == True:
+        if self.avoid_Pinv_instability:
             
             Pinv_ins_tmp1 = torch.max(torch.abs( torch.matmul(self.P[-1].detach(),Pinv_tmp.detach())-torch.eye(self.P[-1].shape[-1]).to(self.P[-1]) ))
             Pinv_ins_tmp2 = torch.max(torch.abs( torch.matmul(Pinv_tmp.detach(),self.P[-1].detach())-torch.eye(self.P[-1].shape[-1]).to(self.P[-1]) ))
