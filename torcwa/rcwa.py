@@ -1,4 +1,3 @@
-import warnings
 import torch
 from math import pi
 from .torch_eig import Eig
@@ -39,10 +38,9 @@ class rcwa:
 
         # Hardware
         if dtype != torch.complex64 and dtype != torch.complex128:
-            warnings.warn(
-                "Invalid simulation data type. Set as torch.complex64.", UserWarning
+            raise ValueError(
+                "Invalid simulation data type"
             )
-            self._dtype = torch.complex64
         else:
             self._dtype = dtype
         self._device = device
@@ -158,8 +156,7 @@ class rcwa:
         elif angle_layer in ["o", "out", "output"]:
             self.angle_layer = "output"
         else:
-            warnings.warn("Invalid angle layer. Set as input layer.", UserWarning)
-            self.angle_layer = "input"
+            raise ValueError("Invalid angle layer")
 
         self._kvectors()
 
@@ -285,16 +282,14 @@ class rcwa:
         elif layer in ["o", "out", "output"]:
             layer = "output"
         else:
-            warnings.warn("Invalid layer. Set as output layer.", UserWarning)
-            layer = "output"
+            raise ValueError("Invalid layer selected")
 
         if unit in ["r", "rad", "radian"]:
             unit = "radian"
         elif unit in ["d", "deg", "degree"]:
             unit = "degree"
         else:
-            warnings.warn("Invalid unit. Set as radian.", UserWarning)
-            unit = "radian"
+            raise ValueError("Invalid unit. Set as 'radian' or 'degree'.")
 
         # Matching indices
         order_indices = self._matching_indices(orders)
@@ -404,20 +399,17 @@ class rcwa:
         elif direction in ["b", "backward"]:
             direction = "backward"
         else:
-            warnings.warn("Invalid propagation direction. Set as forward.", UserWarning)
-            direction = "forward"
+            raise ValueError("Invalid propagation direction. Set as 'forward' or 'backward'.")
 
         if port in ["t", "transmission"]:
             port = "transmission"
         elif port in ["r", "reflection"]:
             port = "reflection"
         else:
-            warnings.warn("Invalid port. Set as tramsmission.", UserWarning)
-            port = "transmission"
+            raise ValueError("Invalid port. Set as 'transmission' or 'reflection'.")
 
         if polarization not in ["xx", "yx", "xy", "yy", "pp", "sp", "ps", "ss"]:
-            warnings.warn("Invalid polarization. Set as xx.", UserWarning)
-            polarization = "xx"
+            raise ValueError("Invalid polarization. Choose one of 'xx','yx','xy','yy','pp','sp','ps','ss'.")
 
         ref_order = torch.as_tensor(
             ref_order, dtype=torch.int64, device=self._device
@@ -805,14 +797,10 @@ class rcwa:
         elif direction in ["b", "backward"]:
             direction = "backward"
         else:
-            warnings.warn("Invalid source direction. Set as forward.", UserWarning)
-            direction = "forward"
+            raise ValueError("Invalid source direction. Set as 'forward' or 'backward'.")
 
         if notation not in ["xy", "ps"]:
-            warnings.warn(
-                "Invalid amplitude notation. Set as xy notation.", UserWarning
-            )
-            notation = "xy"
+            raise ValueError("Invalid amplitude notation. Set as 'xy' or 'ps' notation.")
 
         # Matching indices
         order_indices = self._matching_indices(orders)
@@ -874,10 +862,7 @@ class rcwa:
         """
 
         if not isinstance(x_axis, torch.Tensor) or not isinstance(z_axis, torch.Tensor):
-            warnings.warn(
-                "x and z axis must be torch.Tensor type. Return None.", UserWarning
-            )
-            return None
+            raise TypeError("x and z axis must be torch.Tensor type.")
 
         x_axis = x_axis.reshape([-1, 1, 1])
 
@@ -1111,10 +1096,7 @@ class rcwa:
         """
 
         if not isinstance(y_axis, torch.Tensor) or not isinstance(z_axis, torch.Tensor):
-            warnings.warn(
-                "y and z axis must be torch.Tensor type. Return None.", UserWarning
-            )
-            return None
+            raise TypeError("y and z axis must be torch.Tensor type.")
 
         y_axis = y_axis.reshape([-1, 1, 1])
 
@@ -1354,20 +1336,13 @@ class rcwa:
         """
 
         if not isinstance(layer_num, int):
-            warnings.warn(
-                'Parameter "layer_num" must be int type. Return None.', UserWarning
-            )
-            return None
+            raise TypeError('Parameter "layer_num" must be int type.')
 
         if layer_num < -1 or layer_num > self.layer_N:
-            warnings.warn("Layer number is out of range. Return None.", UserWarning)
-            return None
+            raise IndexError("Layer number is out of range.")
 
         if not isinstance(x_axis, torch.Tensor) or not isinstance(y_axis, torch.Tensor):
-            warnings.warn(
-                "x and y axis must be torch.Tensor type. Return None.", UserWarning
-            )
-            return None
+            raise TypeError("x and y axis must be torch.Tensor type.")
 
         # [x, y, diffraction order]
         x_axis = x_axis.reshape([-1, 1, 1])
