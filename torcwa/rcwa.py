@@ -38,9 +38,7 @@ class rcwa:
 
         # Hardware
         if dtype != torch.complex64 and dtype != torch.complex128:
-            raise ValueError(
-                "Invalid simulation data type"
-            )
+            raise ValueError("Invalid simulation data type")
         else:
             self._dtype = dtype
         self._device = device
@@ -399,7 +397,9 @@ class rcwa:
         elif direction in ["b", "backward"]:
             direction = "backward"
         else:
-            raise ValueError("Invalid propagation direction. Set as 'forward' or 'backward'.")
+            raise ValueError(
+                "Invalid propagation direction. Set as 'forward' or 'backward'."
+            )
 
         if port in ["t", "transmission"]:
             port = "transmission"
@@ -409,7 +409,9 @@ class rcwa:
             raise ValueError("Invalid port. Set as 'transmission' or 'reflection'.")
 
         if polarization not in ["xx", "yx", "xy", "yy", "pp", "sp", "ps", "ss"]:
-            raise ValueError("Invalid polarization. Choose one of 'xx','yx','xy','yy','pp','sp','ps','ss'.")
+            raise ValueError(
+                "Invalid polarization. Choose one of 'xx','yx','xy','yy','pp','sp','ps','ss'."
+            )
 
         ref_order = torch.as_tensor(
             ref_order, dtype=torch.int64, device=self._device
@@ -797,10 +799,14 @@ class rcwa:
         elif direction in ["b", "backward"]:
             direction = "backward"
         else:
-            raise ValueError("Invalid source direction. Set as 'forward' or 'backward'.")
+            raise ValueError(
+                "Invalid source direction. Set as 'forward' or 'backward'."
+            )
 
         if notation not in ["xy", "ps"]:
-            raise ValueError("Invalid amplitude notation. Set as 'xy' or 'ps' notation.")
+            raise ValueError(
+                "Invalid amplitude notation. Set as 'xy' or 'ps' notation."
+            )
 
         # Matching indices
         order_indices = self._matching_indices(orders)
