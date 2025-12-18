@@ -68,7 +68,7 @@ class Material():
         self.dl = dl
     
     def apply(self, wavelength, dl = None) -> torch.Tensor:
-        if dl == None:
+        if dl is None:
             dl = self.dl
 
         return _MaterialFn.apply(wavelength, self.nk_data, self.n_interp, self.k_interp, dl) # type: ignore
