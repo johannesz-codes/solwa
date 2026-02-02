@@ -1336,6 +1336,7 @@ class rcwa:
         - y_axis: y-direction sampling coordinates (torch.Tensor)
         - z_prop: z-direction distance from the lower boundary of the layer (layer_num>-1),
             or the distance from the upper boundary of the layer and should be negative (layer_num=-1).
+            Lower boundary (z=0) is facing input layer for layer_num>-1 positive z moves away from input.
 
         Return
         - [Ex, Ey, Ez] (list[torch.Tensor]), [Hx, Hy, Hz] (list[torch.Tensor])
