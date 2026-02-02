@@ -1535,6 +1535,10 @@ class rcwa:
         E, H = fields
         return self.poynting(E, H)
 
+    def poynting_flux(self, layer_num, x_axis, y_axis, z_prop=0.0):
+        from .utils import poynting_flux
+        return poynting_flux(self, layer_num, x_axis, y_axis, z_prop)
+
     # Internal functions
     def _matching_indices(self, orders):
         orders[orders[:, 0] < -self.order[0], 0] = int(-self.order[0])
