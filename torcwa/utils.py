@@ -1,4 +1,6 @@
 import torch
+
+
 def poynting_flux(sim, layer, x_points, y_points, z_prop):
     """
     Compute the z-component of the Poynting flux integrated over specified
