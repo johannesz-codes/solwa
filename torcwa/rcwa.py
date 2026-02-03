@@ -1529,10 +1529,7 @@ class rcwa:
         then calls poynting(E, H) to obtain (Sx, Sy, Sz) on the (x,y)-grid.
         For layer absorption you usually use Sz and compare it at z_prop=0 and z_prop=thickness.
         """
-        fields = self.field_xy(layer_num, x_axis, y_axis, z_prop)
-        if fields is None:
-            raise ValueError("field_xy returned None (invalid inputs).")
-        E, H = fields
+        E, H = self.field_xy(layer_num, x_axis, y_axis, z_prop)
         return self.poynting(E, H)
 
     def poynting_flux(self, layer_num, x_axis, y_axis, z_prop=0.0):
