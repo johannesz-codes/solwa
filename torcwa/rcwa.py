@@ -1533,6 +1533,36 @@ class rcwa:
         return self.poynting(E, H)
 
     def poynting_flux(self, layer_num, x_axis, y_axis, z_prop=0.0):
+        """
+        Hint:
+        Computes the Poynting flux through an XY plane inside the chosen layer.
+
+        This is a higher-level convenience wrapper that delegates to
+        ``torcwa.utils.poynting_flux``. It typically:
+            1) Reconstructs the electromagnetic fields on an (x, y) grid inside
+               ``layer_num`` at the relative position ``z_prop`` (0 at the
+               layer entrance, 1 at the layer exit), using the same conventions
+               as :meth:`field_xy`.
+            2) Evaluates the time-averaged Poynting vector on that plane.
+            3) Aggregates the result to obtain a flux / power quantity.
+
+        Parameters
+        ----------
+        layer_num : int
+            Index of the layer in which the XY plane is located.
+        x_axis, y_axis : 1D array-like
+            Sample points along the x and y directions (same convention as
+            :meth:`field_xy` and :meth:`poynting_xy`).
+        z_prop : float, optional
+            Normalized position within the layer (0 at the entrance interface,
+            1 at the exit interface). Default is 0.0.
+
+        Returns
+        -------
+        Any
+            The Poynting-flux-related quantity as defined by
+            ``torcwa.utils.poynting_flux`` (see that function for details).
+        """
         from .utils import poynting_flux
 
         return poynting_flux(self, layer_num, x_axis, y_axis, z_prop)
