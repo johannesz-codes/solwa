@@ -12,19 +12,22 @@ def poynting_flux(sim, layer, x_points, y_points, z_prop):
 
     Parameters
     ----------
+    sim : object
+        Simulation object providing the ``poynting_xy`` method used to
+        evaluate the Poynting vector on the specified grid.
     layer : int
         Index of the layer for which to evaluate the Poynting flux. See
         the ``layer`` argument of ``sim.poynting_xy`` (use -1 for the input
         interface).
-    z_prop : float
-        z-position (same units as the simulation geometry) at which to
-        evaluate the Poynting flux.
     x_points : array-like or torch.Tensor
         1D array of x coordinates used for the integration (must match the
         x-dimension of the arrays returned by ``sim.poynting_xy`` when called
         with these points).
     y_points : array-like or torch.Tensor
         1D array of y coordinates used for the integration.
+    z_prop : float
+        z-position (same units as the simulation geometry) at which to
+        evaluate the Poynting flux.
 
     Returns
     -------
