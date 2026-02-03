@@ -1507,12 +1507,16 @@ class rcwa:
 
     def poynting(self, E, H):
         """
-        Hint:
-        Computes the time-averaged Poynting vector for phasor fields using the
-        exp(-jωt) convention:
-            <S> = 0.5 * Re(E × H*)
-        Input E/H must be (Ex, Ey, Ez) / (Hx, Hy, Hz) on the same grid (same shape).
-        Returns (Sx, Sy, Sz) on that grid.
+        Computes the time-averaged Poynting vector for phasor fields using the exp(-jωt) convention.
+
+        The calculation follows: <S> = 0.5 * Re(E × H*)
+
+        Parameters
+        - E: Electric field components (Ex, Ey, Ez) as tuple of torch.Tensor with same shape
+        - H: Magnetic field components (Hx, Hy, Hz) as tuple of torch.Tensor with same shape
+
+        Return
+        - (Sx, Sy, Sz): Poynting vector components on the input grid (tuple of torch.Tensor)
         """
         Ex, Ey, Ez = E
         Hx, Hy, Hz = H
@@ -1523,18 +1527,26 @@ class rcwa:
 
     def poynting_xy(self, layer_num, x_axis, y_axis, z_prop=0.0):
         """
-        Hint:
-        Convenience wrapper around field_xy(...): reconstructs E and H on an XY plane
-        inside the chosen layer at position z_prop (same convention as field_xy),
-        then calls poynting(E, H) to obtain (Sx, Sy, Sz) on the (x,y)-grid.
-        For layer absorption you usually use Sz and compare it at z_prop=0 and z_prop=thickness.
+        XY-plane Poynting vector distribution at the selected layer.
+
+        Reconstructs E and H on an XY plane inside the chosen layer at position z_prop
+        (same convention as field_xy), then computes the Poynting vector (Sx, Sy, Sz) on the grid.
+        For layer absorption, typically compare Sz at z_prop=0 and z_prop=thickness.
+
+        Parameters
+        - layer_num: selected layer (int)
+        - x_axis: x-direction sampling coordinates (torch.Tensor)
+        - y_axis: y-direction sampling coordinates (torch.Tensor)
+        - z_prop: z-direction distance from the lower boundary of the layer (same convention as field_xy)
+
+        Return
+        - (Sx, Sy, Sz): Poynting vector components (tuple of torch.Tensor)
         """
         E, H = self.field_xy(layer_num, x_axis, y_axis, z_prop)
         return self.poynting(E, H)
 
     def poynting_flux(self, layer_num, x_axis, y_axis, z_prop=0.0):
         """
-        Hint:
         Computes the Poynting flux through an XY plane inside the chosen layer.
 
         This is a higher-level convenience wrapper that delegates to
