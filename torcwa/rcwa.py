@@ -1523,11 +1523,20 @@ class rcwa:
 
     def poynting_xy(self, layer_num, x_axis, y_axis, z_prop=0.0):
         """
-        Hint:
+        XY-plane Poynting vector distribution at the selected layer.
         Convenience wrapper around field_xy(...): reconstructs E and H on an XY plane
         inside the chosen layer at position z_prop (same convention as field_xy),
         then calls poynting(E, H) to obtain (Sx, Sy, Sz) on the (x,y)-grid.
         For layer absorption you usually use Sz and compare it at z_prop=0 and z_prop=thickness.
+
+        Parameters
+        - layer_num: selected layer (int)
+        - x_axis: x-direction sampling coordinates (torch.Tensor)
+        - y_axis: y-direction sampling coordinates (torch.Tensor)
+        - z_prop: z-direction distance from the lower boundary of the layer (default: 0.0)
+
+        Return
+        - (Sx, Sy, Sz) (tuple[torch.Tensor, torch.Tensor, torch.Tensor])
         """
         E, H = self.field_xy(layer_num, x_axis, y_axis, z_prop)
         return self.poynting(E, H)
