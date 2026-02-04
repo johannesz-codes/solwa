@@ -44,7 +44,7 @@ significant changes from the original torcwa
 
 <br/>
 
-SOLWA Examples
+**solwa** Examples
 ---------------
 1. [Example 0](./example/Example0.ipynb): Fresnel equation
 
