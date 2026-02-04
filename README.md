@@ -92,7 +92,7 @@ If this package is useful for your research, please cite the following paper:
 }
 ```
 
-Work on the **solwa** package is supported by the ERC Consolidator Grand (No. 101125948, PHASE).
+Work on the **solwa** package is supported by the ERC Consolidator Grant (No. 101125948, PHASE).
 
 Furthermore, the authors acknowledge support by the state of Baden-Württemberg through bwHPC
 through providing computational resources
