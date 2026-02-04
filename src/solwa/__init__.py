@@ -1,5 +1,5 @@
 """
-TORCWA: PyTorch-based Rigorous Coupled-Wave Analysis.
+SOLWA: PyTorch-based Rigorous Coupled-Wave Analysis.
 
 GPU-accelerated Fourier Modal Method with automatic differentiation support
 for metasurface design and optimization.
@@ -19,5 +19,5 @@ from .geometry import geometry as geometry, rcwa_geo as rcwa_geo
 from .rcwa import rcwa as rcwa
 from . import materials as materials
 
-__author__ = """Changhyun Kim"""
-__version__ = "0.1.4.2"
+__author__ = """Johannes Zeiser"""
+__version__ = "0.1.0"
