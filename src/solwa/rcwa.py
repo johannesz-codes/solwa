@@ -17,8 +17,8 @@ class rcwa:
     Examples
     --------
     >>> import torch
-    >>> import torcwa
-    >>> sim = torcwa.rcwa(freq=1/500, order=[5, 5], L=[300, 300])
+    >>> import solwa
+    >>> sim = solwa.rcwa(freq=1/500, order=[5, 5], L=[300, 300])
     >>> sim.add_input_layer(eps=1.0)
     >>> sim.set_incident_angle(inc_ang=0.0, azi_ang=0.0)
     >>> sim.add_layer(thickness=100, eps=2.25)
@@ -36,7 +36,7 @@ class rcwa:
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         stable_eig_grad=True,
         avoid_Pinv_instability=False,
-        max_Pinv_instability=0.005
+        max_Pinv_instability=0.005,
     ):
         """
         Initialize Rigorous Coupled Wave Analysis (RCWA) simulation.
@@ -437,7 +437,7 @@ class rcwa:
         polarization="xx",
         ref_order=[0, 0],
         power_norm=True,
-        evanscent=1e-3
+        evanscent=1e-3,
     ):
         """
         Calculate S-parameters for specified orders and polarizations.
@@ -1687,7 +1687,7 @@ class rcwa:
         Computes the Poynting flux through an XY plane inside the chosen layer.
 
         This is a higher-level convenience wrapper that delegates to
-        ``torcwa.utils.poynting_flux``. It typically:
+        ``solwa.utils.poynting_flux``. It typically:
             1) Reconstructs the electromagnetic fields on an (x, y) grid inside
                ``layer_num`` at the relative position ``z_prop`` (0 at the
                layer entrance, 1 at the layer exit), using the same conventions
@@ -1710,7 +1710,7 @@ class rcwa:
         -------
         Any
             The Poynting-flux-related quantity as defined by
-            ``torcwa.utils.poynting_flux`` (see that function for details).
+            ``solwa.utils.poynting_flux`` (see that function for details).
         """
         from .utils import poynting_flux
 

@@ -8,7 +8,7 @@ def poynting_flux(sim, layer, x_points, y_points, z_prop):
 
     This function accepts explicit x and y coordinate arrays and is therefore
     useful when you want to integrate the Poynting flux over a custom grid
-    instead of the global ``torcwa.rcwa_geo.x``/``y`` arrays.
+    instead of the global ``solwa.rcwa_geo.x``/``y`` arrays.
 
     Parameters
     ----------
