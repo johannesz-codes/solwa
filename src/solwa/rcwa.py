@@ -218,16 +218,14 @@ class rcwa:
         """
 
         is_eps_homogenous = (
-            isinstance(eps, float)
-            or isinstance(eps, complex)
-            or (eps.dim() == 0)
-            or ((eps.dim() == 1) and eps.shape[0] == 1)
+            isinstance(eps, (int, float, complex))
+            or (isinstance(eps, torch.Tensor) and eps.dim() == 0)
+            or (isinstance(eps, torch.Tensor) and eps.dim() == 1 and eps.shape[0] == 1)
         )
         is_mu_homogenous = (
-            isinstance(mu, float)
-            or isinstance(mu, float)
-            or (mu.dim() == 0)
-            or ((mu.dim() == 1) and mu.shape[0] == 1)
+            isinstance(mu, (int, float, complex))
+            or (isinstance(mu, torch.Tensor) and mu.dim() == 0)
+            or (isinstance(mu, torch.Tensor) and mu.dim() == 1 and mu.shape[0] == 1)
         )
 
         self.eps_conv.append(
@@ -269,8 +267,16 @@ class rcwa:
             C = [[self.Cf[0]], [self.Cb[0]]]
         else:
             S11 = torch.eye(2 * self.order_N, dtype=self._dtype, device=self._device)
-            S21 = torch.zeros(2 * self.order_N, dtype=self._dtype, device=self._device)
-            S12 = torch.zeros(2 * self.order_N, dtype=self._dtype, device=self._device)
+            S21 = torch.zeros(
+                [2 * self.order_N, 2 * self.order_N],
+                dtype=self._dtype,
+                device=self._device,
+            )
+            S12 = torch.zeros(
+                [2 * self.order_N, 2 * self.order_N],
+                dtype=self._dtype,
+                device=self._device,
+            )
             S22 = torch.eye(2 * self.order_N, dtype=self._dtype, device=self._device)
             C = [[], []]
 
@@ -516,13 +522,9 @@ class rcwa:
                 Kz_norm_dn_in_complex = torch.sqrt(
                     self.eps_in * self.mu_in - self.Kx_norm_dn**2 - self.Ky_norm_dn**2
                 )
-                is_evanescent_in = (
-                    torch.abs(
-                        torch.real(Kz_norm_dn_in_complex)
-                        / torch.imag(Kz_norm_dn_in_complex)
-                    )
-                    < evanscent
-                )
+                is_evanescent_in = torch.abs(
+                    torch.real(Kz_norm_dn_in_complex)
+                ) < evanscent * torch.abs(torch.imag(Kz_norm_dn_in_complex))
                 Kz_norm_dn_in = torch.where(
                     is_evanescent_in,
                     torch.real(torch.zeros_like(Kz_norm_dn_in_complex)),
@@ -533,13 +535,9 @@ class rcwa:
                 Kz_norm_dn_out_complex = torch.sqrt(
                     self.eps_out * self.mu_out - self.Kx_norm_dn**2 - self.Ky_norm_dn**2
                 )
-                is_evanescent_out = (
-                    torch.abs(
-                        torch.real(Kz_norm_dn_out_complex)
-                        / torch.imag(Kz_norm_dn_out_complex)
-                    )
-                    < evanscent
-                )
+                is_evanescent_out = torch.abs(
+                    torch.real(Kz_norm_dn_out_complex)
+                ) < evanscent * torch.abs(torch.imag(Kz_norm_dn_out_complex))
                 Kz_norm_dn_out = torch.where(
                     is_evanescent_out,
                     torch.real(torch.zeros_like(Kz_norm_dn_out_complex)),
@@ -647,13 +645,9 @@ class rcwa:
             order_Kz_norm_dn_complex = torch.sqrt(
                 order_k0_norm2 - order_Kx_norm_dn**2 - order_Ky_norm_dn**2
             )
-            order_is_evanescent = (
-                torch.abs(
-                    torch.real(order_Kz_norm_dn_complex)
-                    / torch.imag(order_Kz_norm_dn_complex)
-                )
-                < evanscent
-            )
+            order_is_evanescent = torch.abs(
+                torch.real(order_Kz_norm_dn_complex)
+            ) < evanscent * torch.abs(torch.imag(order_Kz_norm_dn_complex))
 
             order_inc_angle = torch.atan2(
                 torch.real(order_Kt_norm_dn), order_Kz_norm_dn
@@ -673,13 +667,9 @@ class rcwa:
             ref_Kz_norm_dn_complex = torch.sqrt(
                 ref_k0_norm2 - ref_Kx_norm_dn**2 - ref_Ky_norm_dn**2
             )
-            ref_is_evanescent = (
-                torch.abs(
-                    torch.real(ref_Kz_norm_dn_complex)
-                    / torch.imag(ref_Kz_norm_dn_complex)
-                )
-                < evanscent
-            )
+            ref_is_evanescent = torch.abs(
+                torch.real(ref_Kz_norm_dn_complex)
+            ) < evanscent * torch.abs(torch.imag(ref_Kz_norm_dn_complex))
 
             ref_inc_angle = torch.atan2(torch.real(ref_Kt_norm_dn), ref_Kz_norm_dn)
             ref_azi_angle = torch.atan2(
@@ -777,13 +767,9 @@ class rcwa:
                 Kz_norm_dn_in_complex = torch.sqrt(
                     self.eps_in * self.mu_in - self.Kx_norm_dn**2 - self.Ky_norm_dn**2
                 )
-                is_evanescent_in = (
-                    torch.abs(
-                        torch.real(Kz_norm_dn_in_complex)
-                        / torch.imag(Kz_norm_dn_in_complex)
-                    )
-                    < evanscent
-                )
+                is_evanescent_in = torch.abs(
+                    torch.real(Kz_norm_dn_in_complex)
+                ) < evanscent * torch.abs(torch.imag(Kz_norm_dn_in_complex))
                 Kz_norm_dn_in = torch.where(
                     is_evanescent_in,
                     torch.real(torch.zeros_like(Kz_norm_dn_in_complex)),
@@ -794,13 +780,9 @@ class rcwa:
                 Kz_norm_dn_out_complex = torch.sqrt(
                     self.eps_out * self.mu_out - self.Kx_norm_dn**2 - self.Ky_norm_dn**2
                 )
-                is_evanescent_out = (
-                    torch.abs(
-                        torch.real(Kz_norm_dn_out_complex)
-                        / torch.imag(Kz_norm_dn_out_complex)
-                    )
-                    < evanscent
-                )
+                is_evanescent_out = torch.abs(
+                    torch.real(Kz_norm_dn_out_complex)
+                ) < evanscent * torch.abs(torch.imag(Kz_norm_dn_out_complex))
                 Kz_norm_dn_out = torch.where(
                     is_evanescent_out,
                     torch.abs(torch.real(Kz_norm_dn_out_complex)),
@@ -1026,8 +1008,8 @@ class rcwa:
                             z_axis[zi] - zp[-1] if z_axis[zi] - zp[-1] >= 0.0 else 0.0
                         )
                     if layer_num[zi] != prev_layer_num:
-                        eps = self.eps_out if hasattr(self, "eps_in") else 1.0
-                        mu = self.mu_out if hasattr(self, "mu_in") else 1.0
+                        eps = self.eps_out if hasattr(self, "eps_out") else 1.0
+                        mu = self.mu_out if hasattr(self, "mu_out") else 1.0
                         Vo = self.Vo if hasattr(self, "Vo") else self.Vf
                         Kz_norm_dn = torch.sqrt(
                             eps * mu - Kx_norm_dn**2 - Ky_norm_dn**2
@@ -1267,8 +1249,8 @@ class rcwa:
                             z_axis[zi] - zp[-1] if z_axis[zi] - zp[-1] >= 0.0 else 0.0
                         )
                     if layer_num[zi] != prev_layer_num:
-                        eps = self.eps_out if hasattr(self, "eps_in") else 1.0
-                        mu = self.mu_out if hasattr(self, "mu_in") else 1.0
+                        eps = self.eps_out if hasattr(self, "eps_out") else 1.0
+                        mu = self.mu_out if hasattr(self, "mu_out") else 1.0
                         Vo = self.Vo if hasattr(self, "Vo") else self.Vf
                         Kz_norm_dn = torch.sqrt(
                             eps * mu - Kx_norm_dn**2 - Ky_norm_dn**2
@@ -1496,8 +1478,8 @@ class rcwa:
                 ).reshape([-1, 1])
             elif layer_num == self.layer_N:
                 z_prop = z_prop if z_prop >= 0.0 else 0.0
-                eps = self.eps_out if hasattr(self, "eps_in") else 1.0
-                mu = self.mu_out if hasattr(self, "mu_in") else 1.0
+                eps = self.eps_out if hasattr(self, "eps_out") else 1.0
+                mu = self.mu_out if hasattr(self, "mu_out") else 1.0
                 Vo = self.Vo if hasattr(self, "Vo") else self.Vf
                 Kz_norm_dn = torch.sqrt(eps * mu - Kx_norm_dn**2 - Ky_norm_dn**2)
                 Kz_norm_dn = torch.where(
@@ -1987,6 +1969,7 @@ class rcwa:
         )
 
         Pinv_tmp = torch.linalg.inv(self.P[-1])
+        Vf_inv = torch.linalg.inv(self.Vf)
         if self.avoid_Pinv_instability:
 
             Pinv_ins_tmp1 = torch.max(
@@ -2012,7 +1995,7 @@ class rcwa:
             Qinv_ins_tmp2 = torch.max(
                 torch.abs(
                     torch.matmul(
-                        self.Q[-1].detach(), torch.linalg.inv(self.Q[-1]).detach()
+                        torch.linalg.inv(self.Q[-1]).detach(), self.Q[-1].detach()
                     )
                     - torch.eye(self.Q[-1].shape[-1]).to(self.Q[-1])
                 )
@@ -2040,10 +2023,10 @@ class rcwa:
         Ctmp1 = torch.vstack(
             (
                 self.E_eigvec[-1]
-                + torch.matmul(torch.linalg.inv(self.Vf), self.H_eigvec[-1]),
+                + torch.matmul(Vf_inv, self.H_eigvec[-1]),
                 torch.matmul(
                     self.E_eigvec[-1]
-                    - torch.matmul(torch.linalg.inv(self.Vf), self.H_eigvec[-1]),
+                    - torch.matmul(Vf_inv, self.H_eigvec[-1]),
                     phase,
                 ),
             )
@@ -2052,11 +2035,11 @@ class rcwa:
             (
                 torch.matmul(
                     self.E_eigvec[-1]
-                    - torch.matmul(torch.linalg.inv(self.Vf), self.H_eigvec[-1]),
+                    - torch.matmul(Vf_inv, self.H_eigvec[-1]),
                     phase,
                 ),
                 self.E_eigvec[-1]
-                + torch.matmul(torch.linalg.inv(self.Vf), self.H_eigvec[-1]),
+                + torch.matmul(Vf_inv, self.H_eigvec[-1]),
             )
         )
         Ctmp = torch.hstack((Ctmp1, Ctmp2))
