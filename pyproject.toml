@@ -26,3 +26,6 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["solwa*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

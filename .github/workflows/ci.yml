@@ -19,8 +19,11 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install package
-        run: pip install .
+      - name: Install package and test dependencies
+        run: pip install ".[dev]" pytest || pip install . pytest
 
       - name: Smoke test – import package
         run: python -c "import solwa; from solwa import rcwa, geometry, materials; print(f'solwa {solwa.__version__}')"
+
+      - name: Run tests
+        run: python -m pytest tests/ -v
