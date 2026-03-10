@@ -227,13 +227,13 @@ class rcwa:
             eps_t.view(*eps_t.shape, 1, 1)
             * torch.eye(self.order_N, dtype=self._dtype, device=self._device)
             if is_eps_homogenous
-            else self._material_conv(eps)
+            else self._material_conv(eps_t)
         )
         self.mu_conv.append(
             mu_t.view(*mu_t.shape, 1, 1)
             * torch.eye(self.order_N, dtype=self._dtype, device=self._device)
             if is_mu_homogenous
-            else self._material_conv(mu)
+            else self._material_conv(mu_t)
         )
 
         self.layer_N += 1
@@ -1878,7 +1878,8 @@ class rcwa:
             self.Sout.append(2 * torch.matmul(Vtmp1, self.Vo))  # Tb S22
 
     def _material_conv(self, material):
-        material_N = material.shape[0] * material.shape[1]
+        # material: [nx, ny] for scalar freq, or [B, nx, ny] for batch freq
+        material_N = material.shape[-2] * material.shape[-1]
 
         # Matching indices
         order_x_grid, order_y_grid = torch.meshgrid(
@@ -1892,16 +1893,18 @@ class rcwa:
             ind.to(torch.int64), ind.to(torch.int64), indexing="ij"
         )
 
+        # fft2 always operates on last two dims, correct for both [nx,ny] and [B,nx,ny]
         material_fft = torch.fft.fft2(material) / material_N
 
         material_fft_real = torch.real(material_fft)
         material_fft_imag = torch.imag(material_fft)
 
+        # Use [..., row, col] so batch dimensions are preserved automatically
         material_convmat_real = material_fft_real[
-            ox[indx] - ox[indy], oy[indx] - oy[indy]
+            ..., ox[indx] - ox[indy], oy[indx] - oy[indy]
         ]
         material_convmat_imag = material_fft_imag[
-            ox[indx] - ox[indy], oy[indx] - oy[indy]
+            ..., ox[indx] - ox[indy], oy[indx] - oy[indy]
         ]
 
         material_convmat = torch.complex(material_convmat_real, material_convmat_imag)
