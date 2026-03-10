@@ -48,4 +48,4 @@ def poynting_flux(sim, layer, x_points, y_points, z_prop):
     sim.poynting_xy : Returns the Poynting vector components on a specified grid.
     """
     Sz = sim.poynting_xy(layer, x_points, y_points, z_prop=z_prop)[2]
-    return torch.trapz(torch.trapz(Sz, y_points, dim=1), x_points, dim=0)
+    return torch.trapezoid(torch.trapezoid(Sz, y_points, dim=1), x_points, dim=0)
