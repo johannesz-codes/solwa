@@ -2022,11 +2022,9 @@ class rcwa:
 
         Ctmp1 = torch.vstack(
             (
-                self.E_eigvec[-1]
-                + torch.matmul(Vf_inv, self.H_eigvec[-1]),
+                self.E_eigvec[-1] + torch.matmul(Vf_inv, self.H_eigvec[-1]),
                 torch.matmul(
-                    self.E_eigvec[-1]
-                    - torch.matmul(Vf_inv, self.H_eigvec[-1]),
+                    self.E_eigvec[-1] - torch.matmul(Vf_inv, self.H_eigvec[-1]),
                     phase,
                 ),
             )
@@ -2034,12 +2032,10 @@ class rcwa:
         Ctmp2 = torch.vstack(
             (
                 torch.matmul(
-                    self.E_eigvec[-1]
-                    - torch.matmul(Vf_inv, self.H_eigvec[-1]),
+                    self.E_eigvec[-1] - torch.matmul(Vf_inv, self.H_eigvec[-1]),
                     phase,
                 ),
-                self.E_eigvec[-1]
-                + torch.matmul(Vf_inv, self.H_eigvec[-1]),
+                self.E_eigvec[-1] + torch.matmul(Vf_inv, self.H_eigvec[-1]),
             )
         )
         Ctmp = torch.hstack((Ctmp1, Ctmp2))
