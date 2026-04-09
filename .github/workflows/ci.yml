@@ -19,7 +19,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install package and test dependencies
+      - name: Install package
         run: pip install ".[dev]" pytest || pip install . pytest
 
       - name: Smoke test – import package

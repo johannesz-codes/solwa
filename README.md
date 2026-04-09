@@ -27,7 +27,17 @@ Features
 
 Installation
 ------------
-currently only installation from source is supported
+Install from PyPI using pip:
+
+```bash
+pip install solwa
+```
+
+Alternatively, install from source by cloning this repository and running:
+
+```bash
+pip install .
+```
 
 PyTorch ≥ 2.10 is recommended for improved CUDA performance
 (see PR: https://github.com/pytorch/pytorch/pull/166715)
