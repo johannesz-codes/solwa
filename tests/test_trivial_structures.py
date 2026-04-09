@@ -113,16 +113,37 @@ class TestHomogeneousSlab:
         assert abs(total - 1.0) < 1e-4
 
     def test_fabry_perot_agreement(self, sim):
-        """Zeroth-order transmittance matches the Fabry-Perot formula."""
+        """Zeroth-order transmittance matches the Fabry-Perot formula.
+
+        For a lossless slab (refractive index n1, thickness d) surrounded by
+        air (n0 = n2 = 1) at normal incidence, the total transmitted amplitude
+        is given by the Fabry-Perot etalon formula (summing all round-trip
+        reflections as a geometric series):
+
+            t_total = t01 * t12 * exp(i*φ) / (1 - r10 * r12 * exp(2i*φ))
+
+        where the Fresnel amplitude coefficients at normal incidence are:
+
+            t01 = 2*n0 / (n0 + n1)  →  2 / (1 + n1)       (air → slab)
+            t12 = 2*n1 / (n1 + n2)  →  2*n1 / (n1 + 1)    (slab → air)
+            r10 = (n1 - n0) / (n1 + n0)  →  (n1 - 1) / (n1 + 1)
+            r12 = (n1 - n2) / (n1 + n2)  →  (n1 - 1) / (n1 + 1)
+
+        and φ = 2π n1 d / λ is the single-pass optical phase inside the slab.
+
+        Since n0 = n2 the power transmittance is T = |t_total|².
+
+        References: Born & Wolf, "Principles of Optics", §1.6 (Fabry-Perot
+        etalon); Hecht, "Optics", §9.6 (multiple-beam interference).
+        """
         n1 = self.N_GLASS
         d = self.THICKNESS
-        # Amplitude product t01 * t12 and reflectance product r10 * r12.
-        # At normal incidence, n0 = n2 = 1 (air):
+        # Fresnel amplitude coefficients (air n0=1, slab n1, air n2=1):
         #   t01 = 2/(1+n1),  t12 = 2*n1/(n1+1)
         #   r10 = (n1-1)/(n1+1),  r12 = (n1-1)/(n1+1)
-        t_product = (2.0 / (1 + n1)) * (2 * n1 / (n1 + 1))
-        r_product = ((n1 - 1) / (n1 + 1)) ** 2
-        phi = 2 * pi * n1 * d / LAMBDA  # single-pass phase in the slab
+        t_product = (2.0 / (1 + n1)) * (2 * n1 / (n1 + 1))  # t01 * t12
+        r_product = ((n1 - 1) / (n1 + 1)) ** 2               # r10 * r12
+        phi = 2 * pi * n1 * d / LAMBDA  # single-pass optical phase
         T_FP = (
             abs(t_product * cmath.exp(1j * phi) / (1 - r_product * cmath.exp(2j * phi)))
             ** 2
