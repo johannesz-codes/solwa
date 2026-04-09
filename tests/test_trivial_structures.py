@@ -108,7 +108,17 @@ class TestHomogeneousSlab:
         return s
 
     def test_energy_conservation(self, sim):
-        """T + R = 1 for a lossless dielectric slab (only 0th order propagates)."""
+        """T + R = 1 for a lossless dielectric slab (only 0th order propagates).
+
+        Ground-truth formula: energy conservation (optical theorem) for a
+        lossless (Im ε = 0) medium.  The cell period is smaller than λ, so
+        only the zeroth diffraction order is propagating; the total power
+        balance therefore reduces to
+
+            T[0] + R[0] = 1.
+
+        Reference: any EM textbook, e.g. Born & Wolf §1.5.
+        """
         total = _energy_balance(sim, max_order=0)
         assert abs(total - 1.0) < 1e-4
 
@@ -192,7 +202,21 @@ class TestSingleSlit:
         return s
 
     def test_energy_conservation(self, sim):
-        """T + R = 1 summed over all propagating diffraction orders."""
+        """T + R = 1 summed over all propagating diffraction orders.
+
+        Ground-truth formula: energy conservation for a lossless medium.
+        For a periodic structure illuminated at normal incidence the total
+        scattered power must equal the incident power:
+
+            Σ_m T[m] + Σ_m R[m] = 1
+
+        where the sum runs over all diffraction orders m for which the
+        in-plane wave-vector |k_x + m·G| ≤ k0 (propagating orders only).
+        Evanescent orders carry no net time-averaged power.
+
+        Reference: Petit (ed.), "Electromagnetic Theory of Gratings" (1980),
+        Ch. 1; also standard result in coupled-wave theory.
+        """
         total = _energy_balance(sim, max_order=self.ORDER[0])
         assert abs(total - 1.0) < 1e-4
 
@@ -247,23 +271,53 @@ class TestDoubleSlit:
         return s
 
     def test_first_order_destructive_interference(self, sim):
-        """
-        The ±1st orders vanish: the slit pair spacing equals half the period,
-        making the structure-factor zero at m = ±1.
+        """The ±1st orders vanish due to destructive interference.
+
+        Ground-truth formula: double-slit structure factor.
+        For two identical slits at positions x1 = Λ/4 and x2 = 3Λ/4
+        the Fourier (structure) factor for grating order m is:
+
+            S(m) = exp(2πi·m·x1/Λ) + exp(2πi·m·x2/Λ)
+                 = exp(iπm/2) + exp(i3πm/2)
+                 = exp(iπm/2) [1 + exp(iπm)]
+
+        At m = ±1:  1 + exp(±iπ) = 1 − 1 = 0  →  S(±1) = 0.
+
+        Because the scattered field amplitude is proportional to S(m), the
+        transmitted (and reflected) power in those orders is zero.
+
+        Reference: Hecht, "Optics", §10.2 (multiple-slit diffraction).
         """
         assert _T(sim, +1) < 1e-3
         assert _T(sim, -1) < 1e-3
 
     def test_mirror_symmetry(self, sim):
-        """
-        Mirror symmetry of the unit cell forces |T[+m]| = |T[-m]| for all m
-        at normal incidence.
+        """Mirror symmetry forces |T[+m]| = |T[-m]| for all m at normal incidence.
+
+        Ground-truth formula: symmetry argument on the Fourier coefficients.
+        A permittivity profile ε(x) that is even about x = Λ/2 (i.e.,
+        ε(Λ/2 + δ) = ε(Λ/2 − δ)) has real Fourier coefficients ε̂_m = ε̂_{-m}*.
+        At normal incidence (k_inc = 0), the ±m grating orders are excited
+        symmetrically, so the S-matrix elements satisfy
+
+            |T[+m]| = |T[−m]|   and   |R[+m]| = |R[−m]|.
+
+        Reference: standard symmetry argument; see Moharam & Gaylord (1981),
+        J. Opt. Soc. Am. 71, §III.
         """
         for m in (1, 2, 3):
             assert abs(_T(sim, +m) - _T(sim, -m)) < 1e-5
 
     def test_energy_conservation(self, sim):
-        """T + R = 1 for the lossless double-slit structure."""
+        """T + R = 1 for the lossless double-slit structure.
+
+        Same ground-truth formula as TestSingleSlit.test_energy_conservation:
+        energy conservation summed over all propagating diffraction orders,
+
+            Σ_m T[m] + Σ_m R[m] = 1,
+
+        valid for any lossless (Im ε = 0) periodic structure.
+        """
         total = _energy_balance(sim, max_order=self.ORDER[0])
         assert abs(total - 1.0) < 1e-4
 
@@ -312,15 +366,37 @@ class TestBinaryGrating:
         return s
 
     def test_grating_equation(self, sim):
-        """
-        The first transmitted diffraction order satisfies sin θ = λ / d,
-        which is independent of material parameters.
+        """The first transmitted diffraction order satisfies the grating equation.
+
+        Ground-truth formula: the grating equation at normal incidence (θ_inc = 0):
+
+            sin θ_m = m · λ / d
+
+        where d is the grating period and m is the diffraction order index.
+        At m = 1 and with λ = 532 nm, d = 1000 nm:
+
+            θ_1 = arcsin(532 / 1000) ≈ 32.12°.
+
+        This kinematic relation depends only on the geometry (λ, d) and is
+        completely independent of the grating material or fill factor.
+
+        Reference: Born & Wolf, "Principles of Optics", §8.6 (grating equation);
+        Hecht, "Optics", §10.2.
         """
         angle_deg, _ = sim.diffraction_angle([[1, 0]], layer="output", unit="degree")
         expected_deg = asin(LAMBDA / self.PERIOD) * 180 / pi
         assert abs(angle_deg.item() - expected_deg) < 1e-3
 
     def test_energy_conservation(self, sim):
-        """T + R = 1 for the lossless binary grating."""
+        """T + R = 1 for the lossless binary grating.
+
+        Same ground-truth formula as the other energy-conservation tests:
+
+            Σ_m T[m] + Σ_m R[m] = 1,
+
+        where the sum runs over all propagating diffraction orders.  With
+        d = 1000 nm and λ = 532 nm, orders |m| ≤ 1 are propagating
+        (sin θ_1 = 532/1000 < 1); higher orders are evanescent.
+        """
         total = _energy_balance(sim, max_order=self.ORDER[0])
         assert abs(total - 1.0) < 1e-4
