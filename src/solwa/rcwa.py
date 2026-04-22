@@ -34,6 +34,7 @@ class rcwa:
         *,
         dtype=torch.complex64,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+        offload_device=None,
         stable_eig_grad=True,
         avoid_Pinv_instability=False,
         max_Pinv_instability=0.005,
@@ -56,6 +57,12 @@ class rcwa:
             Simulation data type (torch.complex64 or torch.complex128). Default is torch.complex64.
         device : torch.device, optional
             Simulation device (torch.device('cpu') or torch.device('cuda')). Default is CUDA if available, otherwise CPU.
+        offload_device : torch.device or str or None, optional
+            Device to offload tensors that are not currently in use. When set, completed
+            layer tensors are automatically moved to this device after each layer is added
+            and brought back to the compute device on demand. Typical use is
+            ``offload_device=torch.device('cpu')`` to keep GPU memory usage low when
+            simulating many layers. Default is None (offloading disabled).
         stable_eig_grad : bool, optional
             Stabilize gradient calculation of eigendecomposition. Default is True.
         avoid_Pinv_instability : bool, optional
@@ -70,6 +77,14 @@ class rcwa:
         else:
             self._dtype = dtype
         self._device = device
+
+        # Device offloading
+        if offload_device is None:
+            self._offload_device = None
+        elif isinstance(offload_device, torch.device):
+            self._offload_device = offload_device
+        else:
+            self._offload_device = torch.device(offload_device)
 
         # Stabilize the gradient of eigendecomposition
         self.stable_eig_grad = True if stable_eig_grad else False
@@ -251,6 +266,9 @@ class rcwa:
 
         self._solve_layer_smatrix()
 
+        if self._offload_device is not None:
+            self._offload_layer_data()
+
     # Solve simulation
     def solve_global_smatrix(self):
         """
@@ -262,11 +280,11 @@ class rcwa:
 
         # Initialization
         if self.layer_N > 0:
-            S11 = self.layer_S11[0]
-            S21 = self.layer_S21[0]
-            S12 = self.layer_S12[0]
-            S22 = self.layer_S22[0]
-            C = [[self.Cf[0]], [self.Cb[0]]]
+            S11 = self._d(self.layer_S11[0])
+            S21 = self._d(self.layer_S21[0])
+            S12 = self._d(self.layer_S12[0])
+            S22 = self._d(self.layer_S22[0])
+            C = [[self._d(self.Cf[0])], [self._d(self.Cb[0])]]
         else:
             S11 = torch.eye(2 * self.order_N, dtype=self._dtype, device=self._device)
             S21 = torch.zeros(2 * self.order_N, dtype=self._dtype, device=self._device)
@@ -279,13 +297,13 @@ class rcwa:
             [S11, S21, S12, S22], C = self._RS_prod(
                 Sm=[S11, S21, S12, S22],
                 Sn=[
-                    self.layer_S11[i + 1],
-                    self.layer_S21[i + 1],
-                    self.layer_S12[i + 1],
-                    self.layer_S22[i + 1],
+                    self._d(self.layer_S11[i + 1]),
+                    self._d(self.layer_S21[i + 1]),
+                    self._d(self.layer_S12[i + 1]),
+                    self._d(self.layer_S22[i + 1]),
                 ],
                 Cm=C,
-                Cn=[[self.Cf[i + 1]], [self.Cb[i + 1]]],
+                Cn=[[self._d(self.Cf[i + 1])], [self._d(self.Cb[i + 1])]],
             )
 
         if hasattr(self, "Sin"):
@@ -308,6 +326,12 @@ class rcwa:
 
         self.S = [S11, S21, S12, S22]
         self.C = C
+
+        if self._offload_device is not None:
+            self.C = [
+                [t.to(self._offload_device) for t in self.C[0]],
+                [t.to(self._offload_device) for t in self.C[1]],
+            ]
 
     # Returns
     def diffraction_angle(self, orders, *, layer="output", unit="radian"):
@@ -392,34 +416,36 @@ class rcwa:
 
         eps_fft = torch.zeros([nx, ny], dtype=self._dtype, device=self._device)
         mu_fft = torch.zeros([nx, ny], dtype=self._dtype, device=self._device)
+        eps_conv = self._d(self.eps_conv[layer_num])
+        mu_conv = self._d(self.mu_conv[layer_num])
         for i in range(-2 * self.order[0], 2 * self.order[0] + 1):
             for j in range(-2 * self.order[1], 2 * self.order[1] + 1):
                 if i >= 0 and j >= 0:
-                    eps_fft[i, j] = self.eps_conv[layer_num][
+                    eps_fft[i, j] = eps_conv[
                         i * (2 * self.order[1] + 1) + j, 0
                     ]
-                    mu_fft[i, j] = self.mu_conv[layer_num][
+                    mu_fft[i, j] = mu_conv[
                         i * (2 * self.order[1] + 1) + j, 0
                     ]
                 elif i >= 0 and j < 0:
-                    eps_fft[i, j] = self.eps_conv[layer_num][
+                    eps_fft[i, j] = eps_conv[
                         i * (2 * self.order[1] + 1), -j
                     ]
-                    mu_fft[i, j] = self.mu_conv[layer_num][
+                    mu_fft[i, j] = mu_conv[
                         i * (2 * self.order[1] + 1), -j
                     ]
                 elif i < 0 and j >= 0:
-                    eps_fft[i, j] = self.eps_conv[layer_num][
+                    eps_fft[i, j] = eps_conv[
                         j, -i * (2 * self.order[1] + 1)
                     ]
-                    mu_fft[i, j] = self.mu_conv[layer_num][
+                    mu_fft[i, j] = mu_conv[
                         j, -i * (2 * self.order[1] + 1)
                     ]
                 else:
-                    eps_fft[i, j] = self.eps_conv[layer_num][
+                    eps_fft[i, j] = eps_conv[
                         0, -i * (2 * self.order[1] + 1) - j
                     ]
-                    mu_fft[i, j] = self.mu_conv[layer_num][
+                    mu_fft[i, j] = mu_conv[
                         0, -i * (2 * self.order[1] + 1) - j
                     ]
 
@@ -1100,19 +1126,19 @@ class rcwa:
 
                 if layer_num[zi] != prev_layer_num:
                     if self.source_direction == "forward":
-                        C = torch.matmul(self.C[0][layer_num[zi]], self.E_i)
+                        C = torch.matmul(self._d(self.C[0][layer_num[zi]]), self.E_i)
                     elif self.source_direction == "backward":
-                        C = torch.matmul(self.C[1][layer_num[zi]], self.E_i)
+                        C = torch.matmul(self._d(self.C[1][layer_num[zi]]), self.E_i)
 
-                    kz_norm = self.kz_norm[layer_num[zi]]
-                    E_eigvec = self.E_eigvec[layer_num[zi]]
-                    H_eigvec = self.H_eigvec[layer_num[zi]]
+                    kz_norm = self._d(self.kz_norm[layer_num[zi]])
+                    E_eigvec = self._d(self.E_eigvec[layer_num[zi]])
+                    H_eigvec = self._d(self.H_eigvec[layer_num[zi]])
 
                     Cp = torch.diag(C[: 2 * self.order_N, 0])
                     Cm = torch.diag(C[2 * self.order_N :, 0])
 
-                    eps_conv_inv = torch.linalg.inv(self.eps_conv[layer_num[zi]])
-                    mu_conv_inv = torch.linalg.inv(self.mu_conv[layer_num[zi]])
+                    eps_conv_inv = torch.linalg.inv(self._d(self.eps_conv[layer_num[zi]]))
+                    mu_conv_inv = torch.linalg.inv(self._d(self.mu_conv[layer_num[zi]]))
 
                 # Phase
                 z_phase_p = torch.diag(torch.exp(1.0j * self.omega * kz_norm * z_prop))
@@ -1344,19 +1370,19 @@ class rcwa:
 
                 if layer_num[zi] != prev_layer_num:
                     if self.source_direction == "forward":
-                        C = torch.matmul(self.C[0][layer_num[zi]], self.E_i)
+                        C = torch.matmul(self._d(self.C[0][layer_num[zi]]), self.E_i)
                     elif self.source_direction == "backward":
-                        C = torch.matmul(self.C[1][layer_num[zi]], self.E_i)
+                        C = torch.matmul(self._d(self.C[1][layer_num[zi]]), self.E_i)
 
-                    kz_norm = self.kz_norm[layer_num[zi]]
-                    E_eigvec = self.E_eigvec[layer_num[zi]]
-                    H_eigvec = self.H_eigvec[layer_num[zi]]
+                    kz_norm = self._d(self.kz_norm[layer_num[zi]])
+                    E_eigvec = self._d(self.E_eigvec[layer_num[zi]])
+                    H_eigvec = self._d(self.H_eigvec[layer_num[zi]])
 
                     Cp = torch.diag(C[: 2 * self.order_N, 0])
                     Cm = torch.diag(C[2 * self.order_N :, 0])
 
-                    eps_conv_inv = torch.linalg.inv(self.eps_conv[layer_num[zi]])
-                    mu_conv_inv = torch.linalg.inv(self.mu_conv[layer_num[zi]])
+                    eps_conv_inv = torch.linalg.inv(self._d(self.eps_conv[layer_num[zi]]))
+                    mu_conv_inv = torch.linalg.inv(self._d(self.mu_conv[layer_num[zi]]))
 
                 # Phase
                 z_phase_p = torch.diag(torch.exp(1.0j * self.omega * kz_norm * z_prop))
@@ -1558,19 +1584,19 @@ class rcwa:
         # Internal layers
         else:
             if self.source_direction == "forward":
-                C = torch.matmul(self.C[0][layer_num], self.E_i)
+                C = torch.matmul(self._d(self.C[0][layer_num]), self.E_i)
             elif self.source_direction == "backward":
-                C = torch.matmul(self.C[1][layer_num], self.E_i)
+                C = torch.matmul(self._d(self.C[1][layer_num]), self.E_i)
 
-            kz_norm = self.kz_norm[layer_num]
-            E_eigvec = self.E_eigvec[layer_num]
-            H_eigvec = self.H_eigvec[layer_num]
+            kz_norm = self._d(self.kz_norm[layer_num])
+            E_eigvec = self._d(self.E_eigvec[layer_num])
+            H_eigvec = self._d(self.H_eigvec[layer_num])
 
             Cp = torch.diag(C[: 2 * self.order_N, 0])
             Cm = torch.diag(C[2 * self.order_N :, 0])
 
-            eps_conv_inv = torch.linalg.inv(self.eps_conv[layer_num])
-            mu_conv_inv = torch.linalg.inv(self.mu_conv[layer_num])
+            eps_conv_inv = torch.linalg.inv(self._d(self.eps_conv[layer_num]))
+            mu_conv_inv = torch.linalg.inv(self._d(self.mu_conv[layer_num]))
 
             # Phase
             z_phase_p = torch.diag(torch.exp(1.0j * self.omega * kz_norm * z_prop))
@@ -1717,6 +1743,29 @@ class rcwa:
         return poynting_flux(self, layer_num, x_axis, y_axis, z_prop)
 
     # Internal functions
+    def _d(self, tensor):
+        """Return *tensor* on the compute device, loading from offload device if needed."""
+        if self._offload_device is not None:
+            return tensor.to(self._device)
+        return tensor
+
+    def _offload_layer_data(self):
+        """Move the most recently added layer's tensors to the offload device."""
+        d = self._offload_device
+        self.P[-1] = self.P[-1].to(d)
+        self.Q[-1] = self.Q[-1].to(d)
+        self.eps_conv[-1] = self.eps_conv[-1].to(d)
+        self.mu_conv[-1] = self.mu_conv[-1].to(d)
+        self.kz_norm[-1] = self.kz_norm[-1].to(d)
+        self.E_eigvec[-1] = self.E_eigvec[-1].to(d)
+        self.H_eigvec[-1] = self.H_eigvec[-1].to(d)
+        self.Cf[-1] = self.Cf[-1].to(d)
+        self.Cb[-1] = self.Cb[-1].to(d)
+        self.layer_S11[-1] = self.layer_S11[-1].to(d)
+        self.layer_S21[-1] = self.layer_S21[-1].to(d)
+        self.layer_S12[-1] = self.layer_S12[-1].to(d)
+        self.layer_S22[-1] = self.layer_S22[-1].to(d)
+
     def _matching_indices(self, orders):
         orders[orders[:, 0] < -self.order[0], 0] = int(-self.order[0])
         orders[orders[:, 0] > self.order[0], 0] = int(self.order[0])
