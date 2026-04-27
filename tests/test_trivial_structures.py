@@ -152,7 +152,7 @@ class TestHomogeneousSlab:
         #   t01 = 2/(1+n1),  t12 = 2*n1/(n1+1)
         #   r10 = (n1-1)/(n1+1),  r12 = (n1-1)/(n1+1)
         t_product = (2.0 / (1 + n1)) * (2 * n1 / (n1 + 1))  # t01 * t12
-        r_product = ((n1 - 1) / (n1 + 1)) ** 2               # r10 * r12
+        r_product = ((n1 - 1) / (n1 + 1)) ** 2  # r10 * r12
         phi = 2 * pi * n1 * d / LAMBDA  # single-pass optical phase
         T_FP = (
             abs(t_product * cmath.exp(1j * phi) / (1 - r_product * cmath.exp(2j * phi)))
@@ -341,9 +341,7 @@ class TestBinaryGrating:
 
     @pytest.fixture
     def sim(self):
-        s = _make_sim(
-            freq=1 / LAMBDA, order=self.ORDER, L=[self.PERIOD, self.LY]
-        )
+        s = _make_sim(freq=1 / LAMBDA, order=self.ORDER, L=[self.PERIOD, self.LY])
         geo = solwa.geometry(
             Lx=self.PERIOD,
             Ly=self.LY,

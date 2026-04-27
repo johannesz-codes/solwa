@@ -421,33 +421,17 @@ class rcwa:
         for i in range(-2 * self.order[0], 2 * self.order[0] + 1):
             for j in range(-2 * self.order[1], 2 * self.order[1] + 1):
                 if i >= 0 and j >= 0:
-                    eps_fft[i, j] = eps_conv[
-                        i * (2 * self.order[1] + 1) + j, 0
-                    ]
-                    mu_fft[i, j] = mu_conv[
-                        i * (2 * self.order[1] + 1) + j, 0
-                    ]
+                    eps_fft[i, j] = eps_conv[i * (2 * self.order[1] + 1) + j, 0]
+                    mu_fft[i, j] = mu_conv[i * (2 * self.order[1] + 1) + j, 0]
                 elif i >= 0 and j < 0:
-                    eps_fft[i, j] = eps_conv[
-                        i * (2 * self.order[1] + 1), -j
-                    ]
-                    mu_fft[i, j] = mu_conv[
-                        i * (2 * self.order[1] + 1), -j
-                    ]
+                    eps_fft[i, j] = eps_conv[i * (2 * self.order[1] + 1), -j]
+                    mu_fft[i, j] = mu_conv[i * (2 * self.order[1] + 1), -j]
                 elif i < 0 and j >= 0:
-                    eps_fft[i, j] = eps_conv[
-                        j, -i * (2 * self.order[1] + 1)
-                    ]
-                    mu_fft[i, j] = mu_conv[
-                        j, -i * (2 * self.order[1] + 1)
-                    ]
+                    eps_fft[i, j] = eps_conv[j, -i * (2 * self.order[1] + 1)]
+                    mu_fft[i, j] = mu_conv[j, -i * (2 * self.order[1] + 1)]
                 else:
-                    eps_fft[i, j] = eps_conv[
-                        0, -i * (2 * self.order[1] + 1) - j
-                    ]
-                    mu_fft[i, j] = mu_conv[
-                        0, -i * (2 * self.order[1] + 1) - j
-                    ]
+                    eps_fft[i, j] = eps_conv[0, -i * (2 * self.order[1] + 1) - j]
+                    mu_fft[i, j] = mu_conv[0, -i * (2 * self.order[1] + 1) - j]
 
         eps_recover = torch.fft.ifftn(eps_fft) * nx * ny
         mu_recover = torch.fft.ifftn(mu_fft) * nx * ny
@@ -1137,7 +1121,9 @@ class rcwa:
                     Cp = torch.diag(C[: 2 * self.order_N, 0])
                     Cm = torch.diag(C[2 * self.order_N :, 0])
 
-                    eps_conv_inv = torch.linalg.inv(self._d(self.eps_conv[layer_num[zi]]))
+                    eps_conv_inv = torch.linalg.inv(
+                        self._d(self.eps_conv[layer_num[zi]])
+                    )
                     mu_conv_inv = torch.linalg.inv(self._d(self.mu_conv[layer_num[zi]]))
 
                 # Phase
@@ -1381,7 +1367,9 @@ class rcwa:
                     Cp = torch.diag(C[: 2 * self.order_N, 0])
                     Cm = torch.diag(C[2 * self.order_N :, 0])
 
-                    eps_conv_inv = torch.linalg.inv(self._d(self.eps_conv[layer_num[zi]]))
+                    eps_conv_inv = torch.linalg.inv(
+                        self._d(self.eps_conv[layer_num[zi]])
+                    )
                     mu_conv_inv = torch.linalg.inv(self._d(self.mu_conv[layer_num[zi]]))
 
                 # Phase
