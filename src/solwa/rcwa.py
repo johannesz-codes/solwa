@@ -1741,7 +1741,9 @@ class rcwa:
         """Move *tensor* to the offload device, using pinned memory for CPU offloading from CUDA."""
         d = self._offload_device
         if d.type == "cpu" and tensor.is_cuda:
-            pinned = torch.empty(tensor.shape, dtype=tensor.dtype, device="cpu", pin_memory=True)
+            pinned = torch.empty(
+                tensor.shape, dtype=tensor.dtype, device="cpu", pin_memory=True
+            )
             pinned.copy_(tensor)
             return pinned
         return tensor.to(d)
