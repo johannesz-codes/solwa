@@ -1740,13 +1740,13 @@ class rcwa:
     def _to_offload(self, tensor):
         """Move *tensor* to the offload device, using pinned memory for CPU offloading from CUDA."""
         d = self._offload_device
-        if d.type == "cpu" and tensor.is_cuda:
+        if d.type == "cpu" and tensor.is_cuda and not tensor.requires_grad:
             pinned = torch.empty(
                 tensor.shape, dtype=tensor.dtype, device="cpu", pin_memory=True
             )
             pinned.copy_(tensor)
             return pinned
-        return tensor.to(d)
+        return tensor.to(d, non_blocking=d.type == "cpu" and tensor.is_cuda)
 
     def _offload_layer_data(self):
         """Move the most recently added layer's tensors to the offload device."""
