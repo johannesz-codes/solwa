@@ -1894,15 +1894,16 @@ class rcwa:
         max_ix_range = int(self.order_x.max() - self.order_x.min())
         max_iy_range = int(self.order_y.max() - self.order_y.min())
         if material.shape[0] <= max_ix_range or material.shape[1] <= max_iy_range:
+            req_nx = max_ix_range + 1
+            req_ny = max_iy_range + 1
             raise ValueError(
-                f"Inhomogeneous material grid is too small for the selected RCWA "
-                f"order. For order_x=[{int(self.order_x.min())}, ..., "
-                f"{int(self.order_x.max())}] and order_y="
-                f"[{int(self.order_y.min())}, ..., {int(self.order_y.max())}], "
-                f"the convolution matrix requires FFT coefficient indices up to "
-                f"\u00b1{max_ix_range} (x) and \u00b1{max_iy_range} (y), but "
-                f"material.shape is {list(material.shape)}. Increase the material "
-                f"grid size or reduce the RCWA order."
+                f"Inhomogeneous material grid is too small for the selected RCWA order. "
+                f"For order_x=[{int(self.order_x.min())}, ..., {int(self.order_x.max())}] and "
+                f"order_y=[{int(self.order_y.min())}, ..., {int(self.order_y.max())}], the convolution "
+                f"matrix uses index differences up to ±{max_ix_range} (x) and ±{max_iy_range} (y), so "
+                f"material.shape must be at least [{req_nx}, {req_ny}] (strictly greater than "
+                f"[{max_ix_range}, {max_iy_range}]). Got {list(material.shape)}. Increase the material grid "
+                f"size or reduce the RCWA order."
             )
 
         # Matching indices
