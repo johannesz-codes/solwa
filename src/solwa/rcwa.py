@@ -1887,6 +1887,24 @@ class rcwa:
     def _material_conv(self, material):
         material_N = material.shape[0] * material.shape[1]
 
+        # Validate material grid size before any FFT or advanced indexing.
+        # The convolution matrix indexes FFT coefficients by order differences,
+        # which can reach ±(max_order - min_order) along each axis. The material
+        # grid must be large enough to support these indices via wraparound.
+        max_ix_range = int(self.order_x.max() - self.order_x.min())
+        max_iy_range = int(self.order_y.max() - self.order_y.min())
+        if material.shape[0] <= max_ix_range or material.shape[1] <= max_iy_range:
+            raise ValueError(
+                f"Inhomogeneous material grid is too small for the selected RCWA "
+                f"order. For order_x=[{int(self.order_x.min())}, ..., "
+                f"{int(self.order_x.max())}] and order_y="
+                f"[{int(self.order_y.min())}, ..., {int(self.order_y.max())}], "
+                f"the convolution matrix requires FFT coefficient indices up to "
+                f"\u00b1{max_ix_range} (x) and \u00b1{max_iy_range} (y), but "
+                f"material.shape is {list(material.shape)}. Increase the material "
+                f"grid size or reduce the RCWA order."
+            )
+
         # Matching indices
         order_x_grid, order_y_grid = torch.meshgrid(
             self.order_x, self.order_y, indexing="ij"
