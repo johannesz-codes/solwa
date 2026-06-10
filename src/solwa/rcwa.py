@@ -1891,8 +1891,8 @@ class rcwa:
         # The convolution matrix indexes FFT coefficients by order differences,
         # which can reach ±(max_order - min_order) along each axis. The material
         # grid must be large enough to support these indices via wraparound.
-        max_ix_range = int(self.order_x.max() - self.order_x.min())
-        max_iy_range = int(self.order_y.max() - self.order_y.min())
+        max_ix_range = 2 * int(self.order[0])
+        max_iy_range = 2 * int(self.order[1])
         if material.shape[0] <= max_ix_range or material.shape[1] <= max_iy_range:
             req_nx = max_ix_range + 1
             req_ny = max_iy_range + 1
