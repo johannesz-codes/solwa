@@ -42,14 +42,14 @@ pip install .
 PyTorch ≥ 2.10 is recommended for improved CUDA performance
 (see PR: https://github.com/pytorch/pytorch/pull/166715)
 
-Material handling
+Material Handling
 ------------
 You can load dispersive materials from n/k tables with:
 
 ```python
 import solwa
 
-silicon = solwa.materials.Material("Materials_data/aSiH.txt")  # default: lossless=False
+silicon = solwa.materials.Material("Materials_data/aSiH.txt")
 silicon_lossless = solwa.materials.Material("Materials_data/aSiH.txt", lossless=True)
 ```
 
