@@ -408,6 +408,7 @@ class TestBinaryGrating:
     ],
 )
 def test_epsilon_dtype_mismatch_error(sim_dtype, eps_dtype):
+    grid_shape = (8, 8)
     sim = solwa.rcwa(
         freq=1 / LAMBDA,
         order=[1, 0],
@@ -419,10 +420,11 @@ def test_epsilon_dtype_mismatch_error(sim_dtype, eps_dtype):
     sim.set_incident_angle(inc_ang=0.0, azi_ang=0.0)
 
     with pytest.raises(ValueError, match="Incompatible epsilon dtype"):
-        sim.add_layer(thickness=100.0, eps=torch.ones((8, 8), dtype=eps_dtype))
+        sim.add_layer(thickness=100.0, eps=torch.ones(grid_shape, dtype=eps_dtype))
 
 
 def test_mu_dtype_mismatch_error():
+    grid_shape = (8, 8)
     sim = solwa.rcwa(
         freq=1 / LAMBDA,
         order=[1, 0],
@@ -434,4 +436,4 @@ def test_mu_dtype_mismatch_error():
     sim.set_incident_angle(inc_ang=0.0, azi_ang=0.0)
 
     with pytest.raises(ValueError, match="Incompatible mu dtype"):
-        sim.add_layer(thickness=100.0, mu=torch.ones((8, 8), dtype=torch.float64))
+        sim.add_layer(thickness=100.0, mu=torch.ones(grid_shape, dtype=torch.float64))
