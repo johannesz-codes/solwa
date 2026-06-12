@@ -114,6 +114,9 @@ class Material:
         index, wavelength, n, k (4 columns).
     dl : float, optional
         Wavelength step for finite-difference gradient computation. Default is 0.005.
+    lossless : bool, optional
+        If True, ignores extinction-coefficient values from file by forcing
+        k = 0 for all wavelengths. Default is False.
     *args
         Additional positional arguments (currently unused).
     **kwargs
@@ -129,9 +132,11 @@ class Material:
         Cubic interpolation function for imaginary part of refractive index.
     dl : float
         Wavelength step for gradient computation.
+    lossless : bool
+        Whether lossless mode is enabled.
     """
 
-    def __init__(self, nk_file, dl=0.005, *args, **kwargs):
+    def __init__(self, nk_file, dl=0.005, lossless=False, *args, **kwargs):
         f_nk = open(nk_file)
         data = f_nk.readlines()
         f_nk.close()
@@ -149,7 +154,8 @@ class Material:
             else:
                 raise ValueError("unknown dimensions of refraction data")
 
-            nk_data.append([float(_lamb0), float(_n), float(_k)])
+            k_value = 0.0 if lossless else float(_k)
+            nk_data.append([float(_lamb0), float(_n), k_value])
         nk_data = np.array(nk_data)
 
         self.n_interp = interp1d(nk_data[:, 0], nk_data[:, 1], kind="cubic")
@@ -157,6 +163,7 @@ class Material:
 
         self.nk_data = nk_data
         self.dl = dl
+        self.lossless = bool(lossless)
 
     def apply(self, wavelength, dl=None) -> torch.Tensor:
         """

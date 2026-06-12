@@ -42,6 +42,20 @@ pip install .
 PyTorch ≥ 2.10 is recommended for improved CUDA performance
 (see PR: https://github.com/pytorch/pytorch/pull/166715)
 
+Material handling
+------------
+You can load dispersive materials from n/k tables with:
+
+```python
+import solwa
+
+silicon = solwa.materials.Material("Materials_data/aSiH.txt")  # default: lossless=False
+silicon_lossless = solwa.materials.Material("Materials_data/aSiH.txt", lossless=True)
+```
+
+When `lossless=True`, the extinction coefficient `k` is forced to zero while
+keeping the tabulated real refractive index `n`.
+
 <br/>
 
 significant changes from the original torcwa
