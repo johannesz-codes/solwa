@@ -151,6 +151,23 @@ class rcwa:
         # Single layer scattering matrices
         self.layer_S11, self.layer_S21, self.layer_S12, self.layer_S22 = [], [], [], []
 
+    def _validate_material_dtype(self, material, name):
+        if not isinstance(material, torch.Tensor):
+            return
+
+        compatible_dtypes = {
+            torch.complex64: (torch.float32, torch.complex64),
+            torch.complex128: (torch.float64, torch.complex128),
+        }
+        expected_dtypes = compatible_dtypes[self._dtype]
+
+        if material.dtype not in expected_dtypes:
+            expected = " or ".join(dtype.__repr__().split(".")[-1] for dtype in expected_dtypes)
+            raise ValueError(
+                f"Incompatible {name} dtype {material.dtype} for simulation dtype "
+                f"{self._dtype}; expected {expected}."
+            )
+
     def add_input_layer(self, eps=1.0, mu=1.0):
         """
         Add input layer to the simulation.
@@ -244,6 +261,8 @@ class rcwa:
             or (mu.dim() == 0)
             or ((mu.dim() == 1) and mu.shape[0] == 1)
         )
+
+        self._validate_material_dtype(eps, "epsilon")
 
         self.eps_conv.append(
             eps * torch.eye(self.order_N, dtype=self._dtype, device=self._device)
