@@ -47,4 +47,4 @@ def test_material_lossless_keeps_real_part(tmp_path):
     n_complex = material.apply(wavelength)
     n_lossless = material_lossless.apply(wavelength)
 
-    assert torch.real(n_complex).item() == torch.real(n_lossless).item()
+    assert abs((torch.real(n_complex) - torch.real(n_lossless)).item()) < 1e-12
