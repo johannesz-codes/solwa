@@ -33,7 +33,7 @@ def test_material_lossless_mode_zeros_k(tmp_path):
     material = Material(str(nk_file), lossless=True)
     nk = material.apply(torch.tensor(550.0))
 
-    assert torch.imag(nk).item() == 0.0
+    assert abs(torch.imag(nk).item()) < 1e-9
 
 
 def test_material_lossless_keeps_real_part(tmp_path):

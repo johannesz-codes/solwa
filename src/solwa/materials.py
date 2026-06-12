@@ -136,7 +136,7 @@ class Material:
         Whether lossless mode is enabled.
     """
 
-def __init__(self, nk_file, dl=0.005, *args, lossless=False, **kwargs):
+    def __init__(self, nk_file, dl=0.005, *args, lossless=False, **kwargs):
         f_nk = open(nk_file)
         data = f_nk.readlines()
         f_nk.close()
