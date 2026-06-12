@@ -423,17 +423,24 @@ def test_epsilon_dtype_mismatch_error(sim_dtype, eps_dtype):
         sim.add_layer(thickness=100.0, eps=torch.ones(grid_shape, dtype=eps_dtype))
 
 
-def test_mu_dtype_mismatch_error():
+@pytest.mark.parametrize(
+    ("sim_dtype", "mu_dtype"),
+    [
+        (torch.complex64, torch.float64),
+        (torch.complex128, torch.float32),
+    ],
+)
+def test_mu_dtype_mismatch_error(sim_dtype, mu_dtype):
     grid_shape = (8, 8)
     sim = solwa.rcwa(
         freq=1 / LAMBDA,
         order=[1, 0],
         L=[1000.0, 1000.0],
-        dtype=torch.complex64,
+        dtype=sim_dtype,
         device=DEVICE,
     )
     sim.add_input_layer(eps=1.0)
     sim.set_incident_angle(inc_ang=0.0, azi_ang=0.0)
 
     with pytest.raises(ValueError, match="Incompatible mu dtype"):
-        sim.add_layer(thickness=100.0, mu=torch.ones(grid_shape, dtype=torch.float64))
+        sim.add_layer(thickness=100.0, mu=torch.ones(grid_shape, dtype=mu_dtype))
