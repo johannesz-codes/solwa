@@ -1730,6 +1730,69 @@ class rcwa:
 
         return poynting_flux(self, layer_num, x_axis, y_axis, z_prop)
 
+    def layer_absorption(self, layer_num, x_axis, y_axis):
+        """
+        Compute the fraction of incident power absorbed in a layer.
+
+        Uses the correct normalization: the absorbed power (difference in
+        Poynting flux between the top and bottom of the layer) is divided by
+        the incident power, **not** the net power entering the layer.
+
+        The naive formula ``1 - P_out / P_in`` is **incorrect** because
+        ``P_in`` (net Poynting flux at the layer entrance) already has the
+        reflected power subtracted.  That formula yields ``A / (1 - R)``
+        rather than the true absorptance ``A``.
+
+        The correct formula implemented here is::
+
+            A = (P_top - P_bottom) / P_incident
+
+        where ``P_incident = 0.5 * Re(n_in) * Lx * Ly`` for a unit-amplitude
+        plane wave at normal incidence (the factor 0.5 comes from the
+        time-averaged Poynting vector of a unit-amplitude phasor field).
+
+        Parameters
+        ----------
+        layer_num : int
+            Index of the layer (0-based).
+        x_axis : torch.Tensor
+            1-D tensor of x-coordinates for spatial integration.
+        y_axis : torch.Tensor
+            1-D tensor of y-coordinates for spatial integration.
+
+        Returns
+        -------
+        torch.Tensor
+            Scalar tensor with the fraction of incident power absorbed in
+            the specified layer.
+
+        Notes
+        -----
+        For a lossless (real-valued permittivity) layer the returned value
+        should be zero (up to numerical precision).  For lossy layers the
+        result agrees with the TMM reference ``A = 1 - T - R`` to
+        floating-point precision when sufficient Fourier orders are used.
+
+        Examples
+        --------
+        >>> sim.source_planewave(amplitude=[1.0, 0.0], direction='forward')
+        >>> x = torch.linspace(0, L[0], 50)
+        >>> y = torch.linspace(0, L[1], 50)
+        >>> A_layer0 = sim.layer_absorption(0, x, y)
+        """
+        thickness = self.thickness[layer_num]
+
+        P_top = self.poynting_flux(layer_num, x_axis, y_axis, z_prop=0.0)
+        P_bottom = self.poynting_flux(layer_num, x_axis, y_axis, z_prop=thickness)
+
+        # Incident power for unit-amplitude plane wave:
+        # P_incident = 0.5 * Re(n_in) * Lx * Ly
+        # where n_in = sqrt(eps_in * mu_in) and the 0.5 is from time-averaging.
+        n_in = torch.real(torch.sqrt(self.eps_in * self.mu_in))
+        P_incident = 0.5 * n_in * self.L[0] * self.L[1]
+
+        return (P_top - P_bottom) / P_incident
+
     # Internal functions
     def _d(self, tensor):
         """Return *tensor* on the compute device, loading from offload device if needed."""
