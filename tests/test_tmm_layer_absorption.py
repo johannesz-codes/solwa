@@ -93,7 +93,7 @@ def tmm_single_slab(n0, n1, n2, thickness, wavelength):
 # Test parameters
 # ---------------------------------------------------------------------------
 
-# Each entry: (wavelength_nm, n_slab, thickness_nm, L, order, description)
+# Each entry: (wavelength, n_slab, thickness, L, order, description)
 TEST_CASES = [
     # Moderate absorption in visible
     (532.0, 1.5 + 0.1j, 200.0, [300.0, 300.0], [3, 3], "glass-like with loss"),
