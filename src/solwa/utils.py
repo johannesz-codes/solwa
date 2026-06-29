@@ -1,6 +1,17 @@
 import torch
 
 
+def _is_cell_centered_axis(points):
+    if points.ndim != 1 or points.numel() < 2:
+        return False
+
+    spacing = points[1:] - points[:-1]
+    step = spacing[0]
+    return torch.allclose(spacing, torch.full_like(spacing, step)) and bool(
+        torch.isclose(points[0], 0.5 * step)
+    )
+
+
 def poynting_flux(sim, layer, x_points, y_points, z_prop):
     """
     Compute the z-component of the Poynting flux integrated over specified
@@ -48,4 +59,12 @@ def poynting_flux(sim, layer, x_points, y_points, z_prop):
     sim.poynting_xy : Returns the Poynting vector components on a specified grid.
     """
     Sz = sim.poynting_xy(layer, x_points, y_points, z_prop=z_prop)[2]
+    x_points = torch.as_tensor(x_points, dtype=Sz.real.dtype, device=Sz.device)
+    y_points = torch.as_tensor(y_points, dtype=Sz.real.dtype, device=Sz.device)
+
+    if _is_cell_centered_axis(x_points) and _is_cell_centered_axis(y_points):
+        dx = x_points[1] - x_points[0]
+        dy = y_points[1] - y_points[0]
+        return Sz.sum() * dx * dy
+
     return torch.trapz(torch.trapz(Sz, y_points, dim=1), x_points, dim=0)
