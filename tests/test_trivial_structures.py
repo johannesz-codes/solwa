@@ -7,6 +7,7 @@ Each test validates a well-known analytical or symmetry property:
   - Double slit             : destructive interference at m=±1, mirror symmetry,
                               and energy conservation
   - Binary lamellar grating : grating equation and energy conservation
+  - Absorbing slab          : near-field absorption (Poynting vector) vs TMM
 
 Simulation notes (from the example notebooks)
 ----------------------------------------------
@@ -398,3 +399,121 @@ class TestBinaryGrating:
         """
         total = _energy_balance(sim, max_order=self.ORDER[0])
         assert abs(total - 1.0) < 1e-4
+
+
+# ---------------------------------------------------------------------------
+# 5. Near-field absorption: Poynting vector vs. Transfer Matrix Method
+# ---------------------------------------------------------------------------
+
+
+class TestAbsorbingSlabPoynting:
+    """
+    Cross-validate the near-field Poynting-vector absorption against the
+    transfer-matrix method (TMM) for a homogeneous absorbing slab.
+
+    The structure is a single lossy dielectric layer (complex ε) in air.
+    Because the layer is homogeneous, RCWA reduces to the TMM exactly, so
+    both approaches must give the same absorbed power fraction.
+
+    Two independent methods are compared:
+
+    1. **Poynting-vector method** (near-field):
+       Absorption = (Sz_flux at layer top − Sz_flux at layer bottom) / P_inc,
+       where the fluxes are obtained by integrating the time-averaged
+       Poynting vector Sz = ½ Re(E × H*)_z over the unit cell.
+
+    2. **Transfer-Matrix Method** (TMM, analytic reference):
+       Absorption = 1 − R_TMM − T_TMM,
+       where R_TMM and T_TMM follow from the Fabry-Perot scattering formula
+       for a slab with complex refractive index (see test docstring below).
+    """
+
+    EPS_ABS = complex(4.0, 1.2)   # lossy dielectric: Re(ε)=4, Im(ε)=1.2
+    THICKNESS = 200.0              # nm
+    L = [300.0, 300.0]             # nm, unit-cell period (< λ → 0th order only)
+    ORDER = [3, 3]
+    NX, NY = 64, 64                # integration grid points
+
+    @pytest.fixture
+    def sim(self):
+        s = _make_sim(freq=1 / LAMBDA, order=self.ORDER, L=self.L)
+        s.add_layer(thickness=self.THICKNESS, eps=self.EPS_ABS)
+        s.solve_global_smatrix()
+        s.source_planewave(amplitude=[1.0, 0.0], direction="forward")
+        return s
+
+    @staticmethod
+    def _tmm_absorption(eps1, d, lam):
+        """
+        Analytic absorption fraction for a homogeneous slab (TMM).
+
+        For a slab with complex permittivity ε₁ (n₁ = √ε₁) and thickness d,
+        surrounded by air (n₀ = n₂ = 1), at normal incidence, the
+        Fabry-Perot scattering formula gives:
+
+            δ  = 2π n₁ d / λ                   (single-pass optical phase)
+
+            r₀₁ = (1 − n₁)/(1 + n₁)            (air→slab Fresnel reflection)
+            r₁₀ = −r₀₁                          (slab→air, reciprocity)
+            t₀₁ = 2/(1 + n₁)                   (air→slab transmission)
+            t₁₀ = 2 n₁/(n₁ + 1)               (slab→air transmission)
+            r₁₂ = (n₁ − 1)/(n₁ + 1)            (slab→output Fresnel reflection)
+            t₁₂ = 2 n₁/(n₁ + 1)               (slab→output transmission)
+
+            r_total = r₀₁ + t₀₁ t₁₀ r₁₂ exp(2iδ) / (1 − r₁₀ r₁₂ exp(2iδ))
+            t_total = t₀₁ t₁₂ exp(iδ)         / (1 − r₁₀ r₁₂ exp(2iδ))
+
+        Since n₀ = n₂ = 1 (real), the power coefficients are
+            R = |r_total|²,   T = |t_total|²,   A = 1 − R − T.
+
+        References: Born & Wolf, "Principles of Optics", §1.6; Hecht,
+        "Optics", §9.6.
+        """
+        n1 = cmath.sqrt(eps1)
+        delta = 2 * pi * n1 * d / lam
+        r01 = (1 - n1) / (1 + n1)
+        r10 = -r01
+        t01 = 2 / (1 + n1)
+        t10 = 2 * n1 / (n1 + 1)
+        r12 = (n1 - 1) / (n1 + 1)
+        t12 = 2 * n1 / (n1 + 1)
+        denom = 1 - r10 * r12 * cmath.exp(2j * delta)
+        r_tot = r01 + t01 * t10 * r12 * cmath.exp(2j * delta) / denom
+        t_tot = t01 * t12 * cmath.exp(1j * delta) / denom
+        R = abs(r_tot) ** 2
+        T = abs(t_tot) ** 2  # n0 = n2 = 1, so no refractive-index correction
+        return 1.0 - R - T
+
+    def test_near_field_absorption_matches_tmm(self, sim):
+        """Near-field (Poynting) absorption agrees with the TMM to < 0.1 %.
+
+        Ground-truth formula: transfer-matrix method for a homogeneous
+        absorbing slab (see ``_tmm_absorption`` for the full derivation).
+
+        The Poynting-vector absorption is computed as the drop in z-directed
+        Poynting flux across the layer, normalised by the incident power:
+
+            A_Poynting = (∫∫ Sz(z=0) dx dy − ∫∫ Sz(z=d) dx dy) / P_inc
+
+        where P_inc = ½ Lx Ly for a unit-amplitude x-polarised plane wave
+        at normal incidence in vacuum.
+
+        Because the layer is homogeneous, RCWA is equivalent to the TMM and
+        both values must coincide to within floating-point rounding
+        (complex64 ≈ 7 significant digits).
+
+        References: Hecht, "Optics", §13.2 (energy absorption in dielectrics);
+        Born & Wolf, §1.5 (Poynting vector and energy flow).
+        """
+        Lx, Ly = self.L
+        x_axis = torch.linspace(0.0, Lx, self.NX, dtype=torch.float32, device=DEVICE)
+        y_axis = torch.linspace(0.0, Ly, self.NY, dtype=torch.float32, device=DEVICE)
+        P_inc = 0.5 * Lx * Ly
+
+        flux_top = sim.poynting_flux(0, x_axis, y_axis, z_prop=0.0)
+        flux_bot = sim.poynting_flux(0, x_axis, y_axis, z_prop=self.THICKNESS)
+        A_poynting = ((flux_top - flux_bot) / P_inc).item()
+
+        A_tmm = self._tmm_absorption(self.EPS_ABS, self.THICKNESS, LAMBDA)
+
+        assert abs(A_poynting - A_tmm) < 1e-4
