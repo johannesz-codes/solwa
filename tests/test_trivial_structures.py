@@ -510,9 +510,9 @@ class TestAbsorbingSlabPoynting:
         y_axis = torch.linspace(0.0, Ly, self.NY, dtype=torch.float32, device=DEVICE)
         P_inc = 0.5 * Lx * Ly
 
-        flux_top = sim.poynting_flux(0, x_axis, y_axis, z_prop=0.0)
-        flux_bot = sim.poynting_flux(0, x_axis, y_axis, z_prop=self.THICKNESS)
-        A_poynting = ((flux_top - flux_bot) / P_inc).item()
+        flux_entrance = sim.poynting_flux(0, x_axis, y_axis, z_prop=0.0)
+        flux_exit = sim.poynting_flux(0, x_axis, y_axis, z_prop=self.THICKNESS)
+        A_poynting = ((flux_entrance - flux_exit) / P_inc).item()
 
         A_tmm = self._tmm_absorption(self.EPS_ABS, self.THICKNESS, LAMBDA)
 
