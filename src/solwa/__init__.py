@@ -14,10 +14,11 @@ Uses Lorentz-Heaviside units with speed of light = 1 and
 time harmonics notation exp(-jωt).
 """
 
-from .torch_eig import Eig as Eig
-from .geometry import geometry as geometry, rcwa_geo as rcwa_geo
-from .rcwa import rcwa as rcwa
 from . import materials as materials
+from .geometry import geometry as geometry
+from .geometry import rcwa_geo as rcwa_geo
+from .rcwa import rcwa as rcwa
+from .torch_eig import Eig as Eig
 
 __author__ = """Johannes Zeiser"""
 __version__ = "0.1.0"

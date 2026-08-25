@@ -1,5 +1,7 @@
-import torch
 from math import pi
+
+import torch
+
 from .torch_eig import Eig
 
 
@@ -33,7 +35,7 @@ class rcwa:
         L,
         *,
         dtype=torch.complex64,
-        device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+        device=None,
         offload_device=None,
         stable_eig_grad=True,
         avoid_Pinv_instability=False,
@@ -82,6 +84,8 @@ class rcwa:
         """
 
         # Hardware
+        if device is None:
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if dtype != torch.complex64 and dtype != torch.complex128:
             raise ValueError("Invalid simulation data type")
         else:
@@ -97,7 +101,7 @@ class rcwa:
             self._offload_device = torch.device(offload_device)
 
         # Stabilize the gradient of eigendecomposition
-        self.stable_eig_grad = True if stable_eig_grad else False
+        self.stable_eig_grad = bool(stable_eig_grad)
 
         # Stability setting for inverse matrix of P and Q
         if avoid_Pinv_instability is True:
@@ -253,14 +257,12 @@ class rcwa:
         """
 
         is_eps_homogenous = (
-            isinstance(eps, float)
-            or isinstance(eps, complex)
+            isinstance(eps, (float, complex))
             or (eps.dim() == 0)
             or ((eps.dim() == 1) and eps.shape[0] == 1)
         )
         is_mu_homogenous = (
-            isinstance(mu, float)
-            or isinstance(mu, float)
+            isinstance(mu, (float, complex))
             or (mu.dim() == 0)
             or ((mu.dim() == 1) and mu.shape[0] == 1)
         )
@@ -480,7 +482,7 @@ class rcwa:
         direction="forward",
         port="transmission",
         polarization="xx",
-        ref_order=[0, 0],
+        ref_order=None,
         power_norm=True,
         evanscent=1e-3,
     ):
@@ -541,6 +543,8 @@ class rcwa:
                 "Invalid polarization. Choose one of 'xx','yx','xy','yy','pp','sp','ps','ss'."
             )
 
+        if ref_order is None:
+            ref_order = [0, 0]
         ref_order = torch.as_tensor(
             ref_order, dtype=torch.int64, device=self._device
         ).reshape([1, 2])
@@ -887,9 +891,7 @@ class rcwa:
         else:
             return None
 
-    def source_planewave(
-        self, *, amplitude=[1.0, 0.0], direction="forward", notation="xy"
-    ):
+    def source_planewave(self, *, amplitude=None, direction="forward", notation="xy"):
         """
         Generate a plane wave source.
 
@@ -908,6 +910,8 @@ class rcwa:
             'ps' for ps-polarization. Default is 'xy'.
         """
 
+        if amplitude is None:
+            amplitude = [1.0, 0.0]
         self.source_fourier(
             amplitude=amplitude, orders=[0, 0], direction=direction, notation=notation
         )
@@ -1050,7 +1054,7 @@ class rcwa:
                 Ky_norm_dn = self.Ky_norm_dn
 
                 if layer_num[zi] == -1:
-                    z_prop = z_axis[zi] if z_axis[zi] <= 0.0 else 0.0
+                    z_prop = min(z_axis[zi], 0.0)
                     if layer_num[zi] != prev_layer_num:
                         eps = self.eps_in if hasattr(self, "eps_in") else 1.0
                         mu = self.mu_in if hasattr(self, "mu_in") else 1.0
@@ -1068,9 +1072,7 @@ class rcwa:
                     if len(zp) == 0:
                         z_prop = z_axis[zi]
                     else:
-                        z_prop = (
-                            z_axis[zi] - zp[-1] if z_axis[zi] - zp[-1] >= 0.0 else 0.0
-                        )
+                        z_prop = max(z_axis[zi] - zp[-1], 0.0)
                     if layer_num[zi] != prev_layer_num:
                         eps = self.eps_out if hasattr(self, "eps_in") else 1.0
                         mu = self.mu_out if hasattr(self, "mu_in") else 1.0
@@ -1294,7 +1296,7 @@ class rcwa:
                 Ky_norm_dn = self.Ky_norm_dn
 
                 if layer_num[zi] == -1:
-                    z_prop = z_axis[zi] if z_axis[zi] <= 0.0 else 0.0
+                    z_prop = min(z_axis[zi], 0.0)
                     if layer_num[zi] != prev_layer_num:
                         eps = self.eps_in if hasattr(self, "eps_in") else 1.0
                         mu = self.mu_in if hasattr(self, "mu_in") else 1.0
@@ -1312,9 +1314,7 @@ class rcwa:
                     if len(zp) == 0:
                         z_prop = z_axis[zi]
                     else:
-                        z_prop = (
-                            z_axis[zi] - zp[-1] if z_axis[zi] - zp[-1] >= 0.0 else 0.0
-                        )
+                        z_prop = max(z_axis[zi] - zp[-1], 0.0)
                     if layer_num[zi] != prev_layer_num:
                         eps = self.eps_out if hasattr(self, "eps_in") else 1.0
                         mu = self.mu_out if hasattr(self, "mu_in") else 1.0
@@ -1538,7 +1538,7 @@ class rcwa:
             Kx_norm_dn, Ky_norm_dn = self.Kx_norm_dn, self.Ky_norm_dn
 
             if layer_num == -1:
-                z_prop = z_prop if z_prop <= 0.0 else 0.0
+                z_prop = min(z_prop, 0.0)
                 eps = self.eps_in if hasattr(self, "eps_in") else 1.0
                 mu = self.mu_in if hasattr(self, "mu_in") else 1.0
                 Vi = self.Vi if hasattr(self, "Vi") else self.Vf
@@ -1547,7 +1547,7 @@ class rcwa:
                     torch.imag(Kz_norm_dn) > 0, torch.conj(Kz_norm_dn), Kz_norm_dn
                 ).reshape([-1, 1])
             elif layer_num == self.layer_N:
-                z_prop = z_prop if z_prop >= 0.0 else 0.0
+                z_prop = max(z_prop, 0.0)
                 eps = self.eps_out if hasattr(self, "eps_in") else 1.0
                 mu = self.mu_out if hasattr(self, "mu_in") else 1.0
                 Vo = self.Vo if hasattr(self, "Vo") else self.Vf
@@ -2176,9 +2176,7 @@ class rcwa:
             self.Sout.append(2 * torch.matmul(Vtmp1, self.Vo))  # Tb S22
 
         if self.symmetry_axis is not None:
-            vf_transformed = torch.matmul(
-                self._Th.mH, torch.matmul(self.Vf, self._Te)
-            )
+            vf_transformed = torch.matmul(self._Th.mH, torch.matmul(self.Vf, self._Te))
             self._Vf_blocks = self._split_symmetry_matrix(vf_transformed)
             if hasattr(self, "Sin"):
                 self._Sin_blocks = [
@@ -2398,23 +2396,29 @@ class rcwa:
         use_p_inverse = True
         if self.avoid_Pinv_instability:
             p_errors, q_errors = [], []
-            for p_block, q_block, pinv_block in zip(
-                p_blocks, q_blocks, pinv_blocks
-            ):
+            for p_block, q_block, pinv_block in zip(p_blocks, q_blocks, pinv_blocks):
                 identity = torch.eye(
                     p_block.shape[-1], dtype=self._dtype, device=self._device
                 )
                 qinv_block = torch.linalg.inv(q_block)
                 p_errors.extend(
                     (
-                        torch.max(torch.abs(p_block.detach() @ pinv_block.detach() - identity)),
-                        torch.max(torch.abs(pinv_block.detach() @ p_block.detach() - identity)),
+                        torch.max(
+                            torch.abs(p_block.detach() @ pinv_block.detach() - identity)
+                        ),
+                        torch.max(
+                            torch.abs(pinv_block.detach() @ p_block.detach() - identity)
+                        ),
                     )
                 )
                 q_errors.extend(
                     (
-                        torch.max(torch.abs(q_block.detach() @ qinv_block.detach() - identity)),
-                        torch.max(torch.abs(qinv_block.detach() @ q_block.detach() - identity)),
+                        torch.max(
+                            torch.abs(q_block.detach() @ qinv_block.detach() - identity)
+                        ),
+                        torch.max(
+                            torch.abs(qinv_block.detach() @ q_block.detach() - identity)
+                        ),
                     )
                 )
             p_error = torch.stack(p_errors).max()
@@ -2436,9 +2440,7 @@ class rcwa:
             size = p_block.shape[-1]
             identity = torch.eye(size, dtype=self._dtype, device=self._device)
             kz_matrix = torch.diag(kz)
-            phase = torch.diag(
-                torch.exp(1.0j * self.omega * kz * self.thickness[-1])
-            )
+            phase = torch.diag(torch.exp(1.0j * self.omega * kz * self.thickness[-1]))
             if use_p_inverse:
                 h_block = pinv_block @ e_block @ kz_matrix
             else:
@@ -2460,12 +2462,8 @@ class rcwa:
 
             e_phase = e_block @ phase
             layer_blocks[0].append(e_phase @ cf[:size] + e_block @ cf[size:])
-            layer_blocks[1].append(
-                e_block @ cf[:size] + e_phase @ cf[size:] - identity
-            )
-            layer_blocks[2].append(
-                e_phase @ cb[:size] + e_block @ cb[size:] - identity
-            )
+            layer_blocks[1].append(e_block @ cf[:size] + e_phase @ cf[size:] - identity)
+            layer_blocks[2].append(e_phase @ cb[:size] + e_block @ cb[size:] - identity)
             layer_blocks[3].append(e_block @ cb[:size] + e_phase @ cb[size:])
 
         self._H_eigvec_blocks.append(h_blocks)
@@ -2724,9 +2722,7 @@ class rcwa:
             coupling[1].append(Cm[1][index] @ tmp2 @ Sn[3])
         for index in range(len(Cn[0])):
             coupling[0].append(Cn[0][index] @ tmp1 @ Sm[0])
-            coupling[1].append(
-                Cn[1][index] + Cn[0][index] @ tmp1 @ Sm[2] @ Sn[3]
-            )
+            coupling[1].append(Cn[1][index] + Cn[0][index] @ tmp1 @ Sm[2] @ Sn[3])
         return result, coupling
 
     def _RS_prod(self, Sm, Sn, Cm, Cn):
