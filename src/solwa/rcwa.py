@@ -38,6 +38,8 @@ class rcwa:
         stable_eig_grad=True,
         avoid_Pinv_instability=False,
         max_Pinv_instability=0.005,
+        symmetry_axis=None,
+        symmetry_tolerance=1e-6,
     ):
         """
         Initialize Rigorous Coupled Wave Analysis (RCWA) simulation.
@@ -69,6 +71,14 @@ class rcwa:
             Avoid instability of P inverse (P: H to E field transformation). Default is False.
         max_Pinv_instability : float, optional
             Allowed maximum instability value for P inverse. Default is 0.005.
+        symmetry_axis : {None, "x", "y"}, optional
+            Enable mirror-symmetry reduction about the selected, centered unit-cell
+            axis. ``"x"`` means reflection across the x-axis (``y -> -y``), and
+            ``"y"`` means reflection across the y-axis (``x -> -x``). The Bloch
+            wave vector normal to the axis must be zero. Default is None.
+        symmetry_tolerance : float, optional
+            Absolute and relative tolerance used when validating symmetric material
+            grids and compatible incidence. Default is 1e-6.
         """
 
         # Hardware
@@ -126,6 +136,10 @@ class rcwa:
         )
         self.order_N = len(self.order_x) * len(self.order_y)
 
+        # Optional mirror-symmetry (parity) basis.  The basis separates all
+        # tangential-field matrices into two independent blocks of size order_N.
+        self._configure_symmetry(symmetry_axis, symmetry_tolerance)
+
         # Lattice vector
         self.L = L  # unit
         self.Gx_norm, self.Gy_norm = 1 / (L[0] * self.freq), 1 / (L[1] * self.freq)
@@ -150,6 +164,12 @@ class rcwa:
 
         # Single layer scattering matrices
         self.layer_S11, self.layer_S21, self.layer_S12, self.layer_S22 = [], [], [], []
+
+        if self.symmetry_axis is not None:
+            self._P_blocks, self._Q_blocks = [], []
+            self._kz_blocks, self._E_eigvec_blocks, self._H_eigvec_blocks = [], [], []
+            self._Cf_blocks, self._Cb_blocks = [], []
+            self._layer_S_blocks = [[], [], [], []]
 
     def add_input_layer(self, eps=1.0, mu=1.0):
         """
@@ -245,6 +265,14 @@ class rcwa:
             or ((mu.dim() == 1) and mu.shape[0] == 1)
         )
 
+        if self.symmetry_axis is not None:
+            if not is_eps_homogenous:
+                self._set_symmetry_sampling(eps)
+                self._validate_material_symmetry(eps, "eps")
+            if not is_mu_homogenous:
+                self._set_symmetry_sampling(mu)
+                self._validate_material_symmetry(mu, "mu")
+
         self.eps_conv.append(
             eps * torch.eye(self.order_N, dtype=self._dtype, device=self._device)
             if is_eps_homogenous
@@ -264,7 +292,10 @@ class rcwa:
         else:
             self._eigen_decomposition()
 
-        self._solve_layer_smatrix()
+        if self.symmetry_axis is None:
+            self._solve_layer_smatrix()
+        else:
+            self._solve_layer_smatrix_symmetry()
 
         if self._offload_device is not None:
             self._offload_layer_data()
@@ -277,6 +308,10 @@ class rcwa:
         Combines all layer scattering matrices into a global S-matrix using
         the recursive doubling algorithm.
         """
+
+        if self.symmetry_axis is not None:
+            self._solve_global_smatrix_symmetry()
+            return
 
         # Initialization
         if self.layer_N > 0:
@@ -983,6 +1018,7 @@ class rcwa:
             ([Ex, Ey, Ez], [Hx, Hy, Hz]) where each component is a torch.Tensor.
         """
 
+        self._materialize_symmetry_data()
         if not isinstance(x_axis, torch.Tensor) or not isinstance(z_axis, torch.Tensor):
             raise TypeError("x and z axis must be torch.Tensor type.")
 
@@ -1226,6 +1262,7 @@ class rcwa:
             ([Ex, Ey, Ez], [Hx, Hy, Hz]) where each component is a torch.Tensor.
         """
 
+        self._materialize_symmetry_data()
         if not isinstance(y_axis, torch.Tensor) or not isinstance(z_axis, torch.Tensor):
             raise TypeError("y and z axis must be torch.Tensor type.")
 
@@ -1486,6 +1523,7 @@ class rcwa:
         if layer_num < -1 or layer_num > self.layer_N:
             raise IndexError("Layer number is out of range.")
 
+        self._materialize_symmetry_data()
         if not isinstance(x_axis, torch.Tensor) or not isinstance(y_axis, torch.Tensor):
             raise TypeError("x and y axis must be torch.Tensor type.")
 
@@ -1731,6 +1769,231 @@ class rcwa:
         return poynting_flux(self, layer_num, x_axis, y_axis, z_prop)
 
     # Internal functions
+    def _materialize_symmetry_data(self):
+        """Lazily reconstruct full-basis data needed only by field APIs."""
+        if self.symmetry_axis is None:
+            return
+
+        destination = self._offload_device or self._device
+        public_layer_lists = (
+            self.layer_S11,
+            self.layer_S21,
+            self.layer_S12,
+            self.layer_S22,
+        )
+        for layer in range(self.layer_N):
+            if self.E_eigvec[layer] is not None:
+                continue
+            e_blocks = [self._d(block) for block in self._E_eigvec_blocks[layer]]
+            h_blocks = [self._d(block) for block in self._H_eigvec_blocks[layer]]
+            cf_blocks = [self._d(block) for block in self._Cf_blocks[layer]]
+            cb_blocks = [self._d(block) for block in self._Cb_blocks[layer]]
+            self.E_eigvec[layer] = (self._Te @ torch.block_diag(*e_blocks)).to(
+                destination
+            )
+            self.H_eigvec[layer] = (self._Th @ torch.block_diag(*h_blocks)).to(
+                destination
+            )
+            self.Cf[layer] = self._assemble_coupling_blocks(cf_blocks).to(destination)
+            self.Cb[layer] = self._assemble_coupling_blocks(cb_blocks).to(destination)
+            for index, public in enumerate(public_layer_lists):
+                blocks = [
+                    self._d(block) for block in self._layer_S_blocks[index][layer]
+                ]
+                public[layer] = self._assemble_boundary_blocks(blocks).to(destination)
+
+        if hasattr(self, "_global_C_blocks") and not self.C[0]:
+            for direction in range(2):
+                for layer in range(len(self._global_C_blocks[0][direction])):
+                    blocks = [
+                        self._d(self._global_C_blocks[parity][direction][layer])
+                        for parity in range(2)
+                    ]
+                    self.C[direction].append(
+                        self._assemble_coupling_blocks(blocks).to(destination)
+                    )
+
+    def _configure_symmetry(self, symmetry_axis, tolerance):
+        """Create electric- and magnetic-field parity bases for a mirror axis."""
+        if symmetry_axis is None:
+            self.symmetry_axis = None
+            self.symmetry_tolerance = float(tolerance)
+            return
+
+        axis = str(symmetry_axis).lower()
+        if axis not in ("x", "y"):
+            raise ValueError("symmetry_axis must be None, 'x', or 'y'")
+        if tolerance <= 0:
+            raise ValueError("symmetry_tolerance must be positive")
+
+        self.symmetry_axis = axis
+        self.symmetry_tolerance = float(tolerance)
+
+        nx_order, ny_order = len(self.order_x), len(self.order_y)
+        harmonic_indices = torch.arange(
+            self.order_N, dtype=torch.int64, device=self._device
+        ).reshape(nx_order, ny_order)
+        mirror_dim = 1 if axis == "x" else 0
+        mirror = torch.flip(harmonic_indices, dims=(mirror_dim,)).reshape(-1)
+
+        # Tangential polar-vector (E) and axial-vector (H) signs under reflection.
+        if axis == "x":
+            e_signs, h_signs = (1.0, -1.0), (-1.0, 1.0)
+        else:
+            e_signs, h_signs = (-1.0, 1.0), (1.0, -1.0)
+
+        self._symmetry_mirror = mirror
+        self._symmetry_e_signs = e_signs
+        self._symmetry_h_signs = h_signs
+        self._symmetry_sample_count = None
+        self._Te, e_sizes = self._parity_basis(mirror, e_signs)
+        self._Th, h_sizes = self._parity_basis(mirror, h_signs)
+        if e_sizes != h_sizes:
+            raise RuntimeError("Electric and magnetic symmetry block sizes differ")
+        self._symmetry_block_sizes = e_sizes
+        split = e_sizes[0]
+        self._symmetry_slices = (slice(0, split), slice(split, sum(e_sizes)))
+
+    def _parity_basis(self, mirror, component_signs, harmonic_phases=None):
+        """Return a unitary basis ordered by even then odd mirror parity."""
+        mirror_cpu = mirror.detach().cpu().tolist()
+        if harmonic_phases is None:
+            harmonic_phases = torch.ones(
+                self.order_N, dtype=self._dtype, device=self._device
+            )
+        phases_cpu = harmonic_phases.detach().cpu().tolist()
+        columns = {1: [], -1: []}
+        root_two = 2.0**0.5
+
+        for component, sign in enumerate(component_signs):
+            visited = set()
+            offset = component * self.order_N
+            for i, j in enumerate(mirror_cpu):
+                if i in visited:
+                    continue
+                visited.add(i)
+                visited.add(j)
+                if i == j:
+                    columns[int(sign)].append(((offset + i, 1.0),))
+                else:
+                    signed_phase = sign * phases_cpu[i]
+                    columns[1].append(
+                        (
+                            (offset + i, 1.0 / root_two),
+                            (offset + j, signed_phase / root_two),
+                        )
+                    )
+                    columns[-1].append(
+                        (
+                            (offset + i, 1.0 / root_two),
+                            (offset + j, -signed_phase / root_two),
+                        )
+                    )
+
+        descriptors = columns[1] + columns[-1]
+        basis = torch.zeros(
+            (2 * self.order_N, 2 * self.order_N),
+            dtype=self._dtype,
+            device=self._device,
+        )
+        for column, entries in enumerate(descriptors):
+            for row, value in entries:
+                basis[row, column] = value
+        return basis, (len(columns[1]), len(columns[-1]))
+
+    def _set_symmetry_sampling(self, material):
+        """Match the parity phase to the half-cell-centered sampled material grid."""
+        sample_count = material.shape[1 if self.symmetry_axis == "x" else 0]
+        if self._symmetry_sample_count is not None:
+            if sample_count != self._symmetry_sample_count:
+                raise ValueError(
+                    "all patterned layers must use the same sampling count along "
+                    f"the coordinate normal to symmetry_axis='{self.symmetry_axis}'"
+                )
+            return
+        if self.layer_N:
+            raise ValueError(
+                "when symmetry_axis is enabled, add a patterned layer before any "
+                "homogeneous internal layers so the sampled mirror phase can be inferred"
+            )
+
+        order_x_grid, order_y_grid = torch.meshgrid(
+            self.order_x, self.order_y, indexing="ij"
+        )
+        normal_order = order_y_grid if self.symmetry_axis == "x" else order_x_grid
+        phases = torch.exp(
+            -2.0j * pi * normal_order.reshape(-1).to(self._dtype) / sample_count
+        )
+        self._Te, e_sizes = self._parity_basis(
+            self._symmetry_mirror, self._symmetry_e_signs, phases
+        )
+        self._Th, h_sizes = self._parity_basis(
+            self._symmetry_mirror, self._symmetry_h_signs, phases
+        )
+        if e_sizes != h_sizes:
+            raise RuntimeError("Electric and magnetic symmetry block sizes differ")
+        self._symmetry_sample_count = sample_count
+        self._refresh_symmetry_boundary_blocks()
+
+    def _refresh_symmetry_boundary_blocks(self):
+        """Rebuild transformed exterior operators after selecting an axis phase."""
+        if not hasattr(self, "Vf"):
+            return
+        vf_transformed = self._Th.mH @ self.Vf @ self._Te
+        self._Vf_blocks = self._split_symmetry_matrix(vf_transformed)
+        if hasattr(self, "Sin"):
+            self._Sin_blocks = [
+                self._split_symmetry_matrix(self._Te.mH @ matrix @ self._Te)
+                for matrix in self.Sin
+            ]
+        if hasattr(self, "Sout"):
+            self._Sout_blocks = [
+                self._split_symmetry_matrix(self._Te.mH @ matrix @ self._Te)
+                for matrix in self.Sout
+            ]
+
+    def _validate_material_symmetry(self, material, name):
+        """Reject a layer grid that does not match the requested centered mirror."""
+        if not isinstance(material, torch.Tensor) or material.dim() != 2:
+            raise ValueError(
+                f"{name} must be a 2-D tensor when symmetry_axis is enabled"
+            )
+        mirror_dim = 1 if self.symmetry_axis == "x" else 0
+        reflected = torch.flip(material, dims=(mirror_dim,))
+        if not torch.allclose(
+            material.detach(),
+            reflected.detach(),
+            rtol=self.symmetry_tolerance,
+            atol=self.symmetry_tolerance,
+        ):
+            coordinate = "y" if self.symmetry_axis == "x" else "x"
+            raise ValueError(
+                f"{name} is not mirror symmetric for symmetry_axis="
+                f"'{self.symmetry_axis}' ({coordinate} -> -{coordinate})"
+            )
+
+    def _split_symmetry_matrix(self, matrix):
+        """Extract the two diagonal parity blocks from a transformed matrix."""
+        return [matrix[s, s] for s in self._symmetry_slices]
+
+    def _assemble_boundary_blocks(self, blocks):
+        """Transform a parity-block boundary operator back to the Fourier basis."""
+        transformed = torch.block_diag(*blocks)
+        return torch.matmul(self._Te, torch.matmul(transformed, self._Te.mH))
+
+    def _assemble_coupling_blocks(self, blocks):
+        """Assemble modal coefficients and map physical boundary fields to parity."""
+        dimension = 2 * self.order_N
+        transformed = torch.zeros(
+            (2 * dimension, dimension), dtype=self._dtype, device=self._device
+        )
+        for block, target in zip(blocks, self._symmetry_slices):
+            size = target.stop - target.start
+            transformed[target, target] = block[:size]
+            lower = slice(dimension + target.start, dimension + target.stop)
+            transformed[lower, target] = block[size:]
+        return torch.matmul(transformed, self._Te.mH)
+
     def _d(self, tensor):
         """Return *tensor* on the compute device, loading from offload device if needed."""
         if self._offload_device is not None:
@@ -1745,14 +2008,29 @@ class rcwa:
         self.eps_conv[-1] = self.eps_conv[-1].to(d)
         self.mu_conv[-1] = self.mu_conv[-1].to(d)
         self.kz_norm[-1] = self.kz_norm[-1].to(d)
-        self.E_eigvec[-1] = self.E_eigvec[-1].to(d)
-        self.H_eigvec[-1] = self.H_eigvec[-1].to(d)
-        self.Cf[-1] = self.Cf[-1].to(d)
-        self.Cb[-1] = self.Cb[-1].to(d)
-        self.layer_S11[-1] = self.layer_S11[-1].to(d)
-        self.layer_S21[-1] = self.layer_S21[-1].to(d)
-        self.layer_S12[-1] = self.layer_S12[-1].to(d)
-        self.layer_S22[-1] = self.layer_S22[-1].to(d)
+        if self.E_eigvec[-1] is not None:
+            self.E_eigvec[-1] = self.E_eigvec[-1].to(d)
+            self.H_eigvec[-1] = self.H_eigvec[-1].to(d)
+            self.Cf[-1] = self.Cf[-1].to(d)
+            self.Cb[-1] = self.Cb[-1].to(d)
+            self.layer_S11[-1] = self.layer_S11[-1].to(d)
+            self.layer_S21[-1] = self.layer_S21[-1].to(d)
+            self.layer_S12[-1] = self.layer_S12[-1].to(d)
+            self.layer_S22[-1] = self.layer_S22[-1].to(d)
+        if self.symmetry_axis is not None:
+            self._P_blocks[-1] = [block.to(d) for block in self._P_blocks[-1]]
+            self._Q_blocks[-1] = [block.to(d) for block in self._Q_blocks[-1]]
+            self._kz_blocks[-1] = [block.to(d) for block in self._kz_blocks[-1]]
+            self._E_eigvec_blocks[-1] = [
+                block.to(d) for block in self._E_eigvec_blocks[-1]
+            ]
+            self._H_eigvec_blocks[-1] = [
+                block.to(d) for block in self._H_eigvec_blocks[-1]
+            ]
+            self._Cf_blocks[-1] = [block.to(d) for block in self._Cf_blocks[-1]]
+            self._Cb_blocks[-1] = [block.to(d) for block in self._Cb_blocks[-1]]
+            for matrices in self._layer_S_blocks:
+                matrices[-1] = [block.to(d) for block in matrices[-1]]
 
     def _matching_indices(self, orders):
         orders[orders[:, 0] < -self.order[0], 0] = int(-self.order[0])
@@ -1790,6 +2068,19 @@ class rcwa:
                 * torch.sin(self.inc_ang)
                 * torch.sin(self.azi_ang)
             )
+
+        if self.symmetry_axis is not None:
+            normal_component = (
+                self.ky0_norm if self.symmetry_axis == "x" else self.kx0_norm
+            )
+            if torch.any(
+                torch.abs(normal_component.detach()) > self.symmetry_tolerance
+            ):
+                component = "ky" if self.symmetry_axis == "x" else "kx"
+                raise ValueError(
+                    f"symmetry_axis='{self.symmetry_axis}' requires {component}0=0; "
+                    "the incident Bloch wave vector breaks the requested mirror symmetry"
+                )
 
         # Free space k-vectors and E to H transformation matrix
         self.kx_norm = self.kx0_norm + self.order_x * self.Gx_norm
@@ -1884,6 +2175,26 @@ class rcwa:
             self.Sout.append(-torch.matmul(Vtmp1, Vtmp2))  # Rb S12
             self.Sout.append(2 * torch.matmul(Vtmp1, self.Vo))  # Tb S22
 
+        if self.symmetry_axis is not None:
+            vf_transformed = torch.matmul(
+                self._Th.mH, torch.matmul(self.Vf, self._Te)
+            )
+            self._Vf_blocks = self._split_symmetry_matrix(vf_transformed)
+            if hasattr(self, "Sin"):
+                self._Sin_blocks = [
+                    self._split_symmetry_matrix(
+                        torch.matmul(self._Te.mH, torch.matmul(matrix, self._Te))
+                    )
+                    for matrix in self.Sin
+                ]
+            if hasattr(self, "Sout"):
+                self._Sout_blocks = [
+                    self._split_symmetry_matrix(
+                        torch.matmul(self._Te.mH, torch.matmul(matrix, self._Te))
+                    )
+                    for matrix in self.Sout
+                ]
+
     def _material_conv(self, material):
         material_N = material.shape[0] * material.shape[1]
 
@@ -1955,14 +2266,42 @@ class rcwa:
             )
         )
 
-        E_eigvec = torch.eye(
-            self.P[-1].shape[-1], dtype=self._dtype, device=self._device
-        )
         kz_norm = torch.sqrt(eps * mu - self.Kx_norm_dn**2 - self.Ky_norm_dn**2)
         kz_norm = torch.where(
             torch.imag(kz_norm) < 0, torch.conj(kz_norm), kz_norm
         )  # Normalized kz for positive mode
         kz_norm = torch.cat((kz_norm, kz_norm))
+
+        if self.symmetry_axis is not None:
+            p_transformed = torch.matmul(
+                self._Te.mH, torch.matmul(self.P[-1], self._Th)
+            )
+            q_transformed = torch.matmul(
+                self._Th.mH, torch.matmul(self.Q[-1], self._Te)
+            )
+            p_blocks = self._split_symmetry_matrix(p_transformed)
+            q_blocks = self._split_symmetry_matrix(q_transformed)
+            kz_transformed = torch.matmul(
+                self._Te.mH, torch.matmul(torch.diag(kz_norm), self._Te)
+            )
+            kz_blocks = [
+                torch.diagonal(kz_transformed[s, s]) for s in self._symmetry_slices
+            ]
+            e_blocks = [
+                torch.eye(size, dtype=self._dtype, device=self._device)
+                for size in self._symmetry_block_sizes
+            ]
+            self._P_blocks.append(p_blocks)
+            self._Q_blocks.append(q_blocks)
+            self._kz_blocks.append(kz_blocks)
+            self._E_eigvec_blocks.append(e_blocks)
+            self.kz_norm.append(torch.cat(kz_blocks))
+            self.E_eigvec.append(None)
+            return
+
+        E_eigvec = torch.eye(
+            self.P[-1].shape[-1], dtype=self._dtype, device=self._device
+        )
 
         self.kz_norm.append(kz_norm)
         self.E_eigvec.append(E_eigvec)
@@ -2006,6 +2345,36 @@ class rcwa:
         )
 
         # Eigen-decomposition
+        if self.symmetry_axis is not None:
+            p_transformed = torch.matmul(
+                self._Te.mH, torch.matmul(self.P[-1], self._Th)
+            )
+            q_transformed = torch.matmul(
+                self._Th.mH, torch.matmul(self.Q[-1], self._Te)
+            )
+            p_blocks = self._split_symmetry_matrix(p_transformed)
+            q_blocks = self._split_symmetry_matrix(q_transformed)
+            kz_blocks, e_blocks = [], []
+            for p_block, q_block in zip(p_blocks, q_blocks):
+                operator = torch.matmul(p_block, q_block)
+                if self.stable_eig_grad is True:
+                    kz_block, e_block = Eig.apply(operator)
+                else:
+                    kz_block, e_block = torch.linalg.eig(operator)
+                kz_block = torch.sqrt(kz_block)
+                kz_blocks.append(
+                    torch.where(torch.imag(kz_block) < 0, -kz_block, kz_block)
+                )
+                e_blocks.append(e_block)
+
+            self._P_blocks.append(p_blocks)
+            self._Q_blocks.append(q_blocks)
+            self._kz_blocks.append(kz_blocks)
+            self._E_eigvec_blocks.append(e_blocks)
+            self.kz_norm.append(torch.cat(kz_blocks))
+            self.E_eigvec.append(None)
+            return
+
         if self.stable_eig_grad is True:
             kz_norm, E_eigvec = Eig.apply(torch.matmul(self.P[-1], self.Q[-1]))
         else:
@@ -2016,6 +2385,105 @@ class rcwa:
             torch.where(torch.imag(kz_norm) < 0, -kz_norm, kz_norm)
         )  # Normalized kz for positive mode
         self.E_eigvec.append(E_eigvec)
+
+    def _solve_layer_smatrix_symmetry(self):
+        """Solve one layer as two independent mirror-parity systems."""
+        p_blocks = [self._d(block) for block in self._P_blocks[-1]]
+        q_blocks = [self._d(block) for block in self._Q_blocks[-1]]
+        kz_blocks = [self._d(block) for block in self._kz_blocks[-1]]
+        e_blocks = [self._d(block) for block in self._E_eigvec_blocks[-1]]
+        vf_blocks = self._Vf_blocks
+        pinv_blocks = [torch.linalg.inv(block) for block in p_blocks]
+
+        use_p_inverse = True
+        if self.avoid_Pinv_instability:
+            p_errors, q_errors = [], []
+            for p_block, q_block, pinv_block in zip(
+                p_blocks, q_blocks, pinv_blocks
+            ):
+                identity = torch.eye(
+                    p_block.shape[-1], dtype=self._dtype, device=self._device
+                )
+                qinv_block = torch.linalg.inv(q_block)
+                p_errors.extend(
+                    (
+                        torch.max(torch.abs(p_block.detach() @ pinv_block.detach() - identity)),
+                        torch.max(torch.abs(pinv_block.detach() @ p_block.detach() - identity)),
+                    )
+                )
+                q_errors.extend(
+                    (
+                        torch.max(torch.abs(q_block.detach() @ qinv_block.detach() - identity)),
+                        torch.max(torch.abs(qinv_block.detach() @ q_block.detach() - identity)),
+                    )
+                )
+            p_error = torch.stack(p_errors).max()
+            q_error = torch.stack(q_errors).max()
+            self.Pinv_instability.append(p_error)
+            self.Qinv_instability.append(q_error)
+            use_p_inverse = bool(p_error < self.max_Pinv_instability)
+
+        h_blocks, cf_blocks, cb_blocks = [], [], []
+        layer_blocks = [[], [], [], []]
+        for p_block, q_block, kz, e_block, vf_block, pinv_block in zip(
+            p_blocks,
+            q_blocks,
+            kz_blocks,
+            e_blocks,
+            vf_blocks,
+            pinv_blocks,
+        ):
+            size = p_block.shape[-1]
+            identity = torch.eye(size, dtype=self._dtype, device=self._device)
+            kz_matrix = torch.diag(kz)
+            phase = torch.diag(
+                torch.exp(1.0j * self.omega * kz * self.thickness[-1])
+            )
+            if use_p_inverse:
+                h_block = pinv_block @ e_block @ kz_matrix
+            else:
+                h_block = q_block @ e_block @ torch.linalg.inv(kz_matrix)
+            h_blocks.append(h_block)
+
+            vf_h = torch.linalg.solve(vf_block, h_block)
+            a = e_block + vf_h
+            b = (e_block - vf_h) @ phase
+            coupling = torch.cat(
+                (torch.cat((a, b), dim=1), torch.cat((b, a), dim=1)), dim=0
+            )
+            rhs_f = torch.cat((2 * identity, torch.zeros_like(identity)), dim=0)
+            rhs_b = torch.cat((torch.zeros_like(identity), 2 * identity), dim=0)
+            cf = torch.linalg.solve(coupling, rhs_f)
+            cb = torch.linalg.solve(coupling, rhs_b)
+            cf_blocks.append(cf)
+            cb_blocks.append(cb)
+
+            e_phase = e_block @ phase
+            layer_blocks[0].append(e_phase @ cf[:size] + e_block @ cf[size:])
+            layer_blocks[1].append(
+                e_block @ cf[:size] + e_phase @ cf[size:] - identity
+            )
+            layer_blocks[2].append(
+                e_phase @ cb[:size] + e_block @ cb[size:] - identity
+            )
+            layer_blocks[3].append(e_block @ cb[:size] + e_phase @ cb[size:])
+
+        self._H_eigvec_blocks.append(h_blocks)
+        self.H_eigvec.append(None)
+        self._Cf_blocks.append(cf_blocks)
+        self._Cb_blocks.append(cb_blocks)
+        self.Cf.append(None)
+        self.Cb.append(None)
+
+        public_lists = (
+            self.layer_S11,
+            self.layer_S21,
+            self.layer_S12,
+            self.layer_S22,
+        )
+        for index, public in enumerate(public_lists):
+            self._layer_S_blocks[index].append(layer_blocks[index])
+            public.append(None)
 
     def _solve_layer_smatrix(self):
         Kz_norm = torch.diag(self.kz_norm[-1])
@@ -2166,6 +2634,100 @@ class rcwa:
                 self.Cb[-1][2 * self.order_N :, :],
             )
         )
+
+    def _solve_global_smatrix_symmetry(self):
+        """Connect layers independently in each parity block, then reconstruct S."""
+        solved = [[], [], [], []]
+        coupling_by_parity = []
+
+        for parity, size in enumerate(self._symmetry_block_sizes):
+            if self.layer_N > 0:
+                current = [
+                    self._d(self._layer_S_blocks[index][0][parity])
+                    for index in range(4)
+                ]
+                coupling = [
+                    [self._d(self._Cf_blocks[0][parity])],
+                    [self._d(self._Cb_blocks[0][parity])],
+                ]
+            else:
+                identity = torch.eye(size, dtype=self._dtype, device=self._device)
+                zero = torch.zeros_like(identity)
+                current = [identity, zero, zero, identity]
+                coupling = [[], []]
+
+            for layer in range(1, self.layer_N):
+                next_layer = [
+                    self._d(self._layer_S_blocks[index][layer][parity])
+                    for index in range(4)
+                ]
+                current, coupling = self._RS_prod_reduced(
+                    current,
+                    next_layer,
+                    coupling,
+                    [
+                        [self._d(self._Cf_blocks[layer][parity])],
+                        [self._d(self._Cb_blocks[layer][parity])],
+                    ],
+                    size,
+                )
+
+            if hasattr(self, "Sin"):
+                current, coupling = self._RS_prod_reduced(
+                    [self._Sin_blocks[index][parity] for index in range(4)],
+                    current,
+                    [[], []],
+                    coupling,
+                    size,
+                )
+            if hasattr(self, "Sout"):
+                current, coupling = self._RS_prod_reduced(
+                    current,
+                    [self._Sout_blocks[index][parity] for index in range(4)],
+                    coupling,
+                    [[], []],
+                    size,
+                )
+
+            for index, block in enumerate(current):
+                solved[index].append(block)
+            coupling_by_parity.append(coupling)
+
+        self.S = [self._assemble_boundary_blocks(blocks) for blocks in solved]
+        self.C = [[], []]
+        self._global_C_blocks = coupling_by_parity
+        if self._offload_device is not None:
+            self._global_C_blocks = [
+                [
+                    [tensor.to(self._offload_device) for tensor in direction]
+                    for direction in parity
+                ]
+                for parity in coupling_by_parity
+            ]
+
+    def _RS_prod_reduced(self, Sm, Sn, Cm, Cn, size):
+        """Redheffer star product for one mirror-parity block."""
+        identity = torch.eye(size, dtype=self._dtype, device=self._device)
+        tmp1 = torch.linalg.inv(identity - Sm[2] @ Sn[1])
+        tmp2 = torch.linalg.inv(identity - Sn[1] @ Sm[2])
+
+        result = [
+            Sn[0] @ tmp1 @ Sm[0],
+            Sm[1] + Sm[3] @ tmp2 @ Sn[1] @ Sm[0],
+            Sn[2] + Sn[0] @ tmp1 @ Sm[2] @ Sn[3],
+            Sm[3] @ tmp2 @ Sn[3],
+        ]
+
+        coupling = [[], []]
+        for index in range(len(Cm[0])):
+            coupling[0].append(Cm[0][index] + Cm[1][index] @ tmp2 @ Sn[1] @ Sm[0])
+            coupling[1].append(Cm[1][index] @ tmp2 @ Sn[3])
+        for index in range(len(Cn[0])):
+            coupling[0].append(Cn[0][index] @ tmp1 @ Sm[0])
+            coupling[1].append(
+                Cn[1][index] + Cn[0][index] @ tmp1 @ Sm[2] @ Sn[3]
+            )
+        return result, coupling
 
     def _RS_prod(self, Sm, Sn, Cm, Cn):
         # S11 = S[0] / S21 = S[1] / S12 = S[2] / S22 = S[3]
