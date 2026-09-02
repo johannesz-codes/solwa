@@ -1695,40 +1695,61 @@ class rcwa:
         E, H = self.field_xy(layer_num, x_axis, y_axis, z_prop)
         return self.poynting(E, H)
 
-    def poynting_flux(self, layer_num, x_axis, y_axis, z_prop=0.0):
+    def poynting_flux(
+        self,
+        layer_num,
+        x_points=None,
+        y_points=None,
+        z_prop=0.0,
+        *,
+        x_cells=None,
+        y_cells=None,
+    ):
         """
-        Hint:
-        Computes the Poynting flux through an XY plane inside the chosen layer.
+        Compute the Poynting flux through an XY plane inside a chosen layer.
 
-        This is a higher-level convenience wrapper that delegates to
-        ``solwa.utils.poynting_flux``. It typically:
-            1) Reconstructs the electromagnetic fields on an (x, y) grid inside
-               ``layer_num`` at the relative position ``z_prop`` (0 at the
-               layer entrance, 1 at the layer exit), using the same conventions
-               as :meth:`field_xy`.
-            2) Evaluates the time-averaged Poynting vector on that plane.
-            3) Aggregates the result to obtain a flux / power quantity.
+        This thin wrapper delegates to ``solwa.utils.poynting_flux``.
+        Coordinates can be supplied either as actual sampling points or as
+        centers of finite cells. The two forms are mutually exclusive.
 
         Parameters
         ----------
         layer_num : int
-            Index of the layer in which the XY plane is located.
-        x_axis, y_axis : 1D array-like
-            Sample points along the x and y directions (same convention as
-            :meth:`field_xy` and :meth:`poynting_xy`).
+            Index of the layer in which the XY plane is located. Use -1 for
+            the input layer.
+        x_points, y_points : array-like or torch.Tensor, optional
+            Actual x/y sampling coordinates. The flux is integrated between
+            these points with the trapezoidal rule. Both axes must be supplied
+            together.
         z_prop : float, optional
-            Normalized position within the layer (0 at the entrance interface,
-            1 at the exit interface). Default is 0.0.
+            z-position at which to evaluate the flux. Default is 0.0.
+        x_cells, y_cells : array-like or torch.Tensor, optional
+            Centers of adjacent, equally sized x/y cells. Each sample
+            represents the full cell around its center and midpoint
+            quadrature is used. Both axes must be supplied together.
 
         Returns
         -------
-        Any
-            The Poynting-flux-related quantity as defined by
-            ``solwa.utils.poynting_flux`` (see that function for details).
+        torch.Tensor
+            Integrated z-component of the Poynting vector.
+
+        Raises
+        ------
+        ValueError
+            If point and cell coordinates are mixed or an axis pair is
+            incomplete.
         """
         from .utils import poynting_flux
 
-        return poynting_flux(self, layer_num, x_axis, y_axis, z_prop)
+        return poynting_flux(
+            self,
+            layer_num,
+            x_points=x_points,
+            y_points=y_points,
+            z_prop=z_prop,
+            x_cells=x_cells,
+            y_cells=y_cells,
+        )
 
     # Internal functions
     def _d(self, tensor):
