@@ -24,5 +24,5 @@ jobs:
         run: ruff check src/solwa --select E4,E7,E9,F
 
       - name: Black
-        run: black --check src/solwa
+        run: black --check --diff src/solwa
 
