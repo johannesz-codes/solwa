@@ -124,6 +124,4 @@ def poynting_flux(
         dy = _cell_step(y_axis, "y_cells")
         return Sz.sum() * dx * dy
 
-    return torch.trapezoid(
-        torch.trapezoid(Sz, y_axis, dim=1), x_axis, dim=0
-    )
+    return torch.trapezoid(torch.trapezoid(Sz, y_axis, dim=1), x_axis, dim=0)
