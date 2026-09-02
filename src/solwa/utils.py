@@ -17,7 +17,9 @@ def _axis_tensor(values, sim):
 def _cell_step(cells, axis_name):
     """Return the width of adjacent, equally sized cells from their centers."""
     if cells.ndim != 1:
-        raise ValueError(f"{axis_name} must be a one-dimensional array of cell centers.")
+        raise ValueError(
+            f"{axis_name} must be a one-dimensional array of cell centers."
+        )
     if cells.numel() < 2:
         raise ValueError(
             f"{axis_name} must contain at least two adjacent cell centers so the "
