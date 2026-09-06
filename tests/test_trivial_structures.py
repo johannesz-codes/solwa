@@ -31,7 +31,6 @@ import solwa
 # ---------------------------------------------------------------------------
 
 LAMBDA = 532.0  # free-space wavelength [nm]
-DEVICE = torch.device("cpu")
 DTYPE = torch.complex64
 GEO_DTYPE = torch.float32
 
@@ -41,9 +40,9 @@ GEO_DTYPE = torch.float32
 # ---------------------------------------------------------------------------
 
 
-def _make_sim(freq, order, L):
+def _make_sim(freq, order, L, device):
     """Return an RCWA object with air input layer at normal incidence."""
-    sim = solwa.rcwa(freq=freq, order=order, L=L, dtype=DTYPE, device=DEVICE)
+    sim = solwa.rcwa(freq=freq, order=order, L=L, dtype=DTYPE, device=device)
     sim.add_input_layer(eps=1.0)
     sim.set_incident_angle(inc_ang=0.0, azi_ang=0.0)
     return sim
@@ -101,8 +100,8 @@ class TestHomogeneousSlab:
     ORDER = [3, 3]
 
     @pytest.fixture
-    def sim(self):
-        s = _make_sim(freq=1 / LAMBDA, order=self.ORDER, L=self.L)
+    def sim(self, device):
+        s = _make_sim(freq=1 / LAMBDA, order=self.ORDER, L=self.L, device=device)
         s.add_layer(thickness=self.THICKNESS, eps=float(self.EPS_GLASS))
         s.solve_global_smatrix()
         return s
@@ -181,8 +180,10 @@ class TestSingleSlit:
     ORDER = [5, 0]
 
     @pytest.fixture
-    def sim(self):
-        s = _make_sim(freq=1 / LAMBDA, order=self.ORDER, L=[self.LX, self.LY])
+    def sim(self, device):
+        s = _make_sim(
+            freq=1 / LAMBDA, order=self.ORDER, L=[self.LX, self.LY], device=device
+        )
         geo = solwa.geometry(
             Lx=self.LX,
             Ly=self.LY,
@@ -190,7 +191,7 @@ class TestSingleSlit:
             ny=100,
             edge_sharpness=1000.0,
             dtype=GEO_DTYPE,
-            device=DEVICE,
+            device=device,
         )
         # Transparent slit in a high-index background
         opening = geo.rectangle(
@@ -247,8 +248,10 @@ class TestDoubleSlit:
     ORDER = [7, 0]
 
     @pytest.fixture
-    def sim(self):
-        s = _make_sim(freq=1 / LAMBDA, order=self.ORDER, L=[self.LX, self.LY])
+    def sim(self, device):
+        s = _make_sim(
+            freq=1 / LAMBDA, order=self.ORDER, L=[self.LX, self.LY], device=device
+        )
         geo = solwa.geometry(
             Lx=self.LX,
             Ly=self.LY,
@@ -256,7 +259,7 @@ class TestDoubleSlit:
             ny=100,
             edge_sharpness=1000.0,
             dtype=GEO_DTYPE,
-            device=DEVICE,
+            device=device,
         )
         slit_A = geo.rectangle(
             Wx=self.SLIT_WIDTH, Wy=self.LY, Cx=self.LX / 4, Cy=self.LY / 2
@@ -340,8 +343,10 @@ class TestBinaryGrating:
     ORDER = [3, 1]
 
     @pytest.fixture
-    def sim(self):
-        s = _make_sim(freq=1 / LAMBDA, order=self.ORDER, L=[self.PERIOD, self.LY])
+    def sim(self, device):
+        s = _make_sim(
+            freq=1 / LAMBDA, order=self.ORDER, L=[self.PERIOD, self.LY], device=device
+        )
         geo = solwa.geometry(
             Lx=self.PERIOD,
             Ly=self.LY,
@@ -349,7 +354,7 @@ class TestBinaryGrating:
             ny=100,
             edge_sharpness=1000.0,
             dtype=GEO_DTYPE,
-            device=DEVICE,
+            device=device,
         )
         # Low-index (air) stripe on the left half, high-index on the right
         stripe = geo.rectangle(
@@ -398,3 +403,4 @@ class TestBinaryGrating:
         """
         total = _energy_balance(sim, max_order=self.ORDER[0])
         assert abs(total - 1.0) < 1e-4
+
