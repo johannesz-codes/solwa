@@ -110,3 +110,9 @@ through providing computational resources.
 
 
 The work on the original **torcwa** was supported by the National Research Foundation of Korea (NRF) grant funded by the Korea government (MSIT) (No. 2020R1A2B5B02002730) and Samsung Electronics Co., Ltd (IO201214-08164-01).
+
+## GPU continuous integration
+
+SOLWA can run its physics tests on a fresh Nebius GPU VM through GitHub Actions.
+See [GPU CI setup and recovery](ci/nebius/README.md) for the two secrets,
+project/subnet configuration, manual test run, and automatic cleanup.
