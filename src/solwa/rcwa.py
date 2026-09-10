@@ -2021,8 +2021,9 @@ class rcwa:
         kz_norm = self.kz_norm[-1]
         phase = torch.exp(1.0j * self.omega * kz_norm * self.thickness[-1])
 
-        Pinv_tmp = torch.linalg.inv(self.P[-1])
         if self.avoid_Pinv_instability:
+            # The explicit inverse remains necessary for the existing diagnostics.
+            Pinv_tmp = torch.linalg.inv(self.P[-1])
 
             Pinv_ins_tmp1 = torch.max(
                 torch.abs(
@@ -2071,11 +2072,11 @@ class rcwa:
                 )
         else:
             self.H_eigvec.append(
-                torch.matmul(Pinv_tmp, self.E_eigvec[-1] * kz_norm[None, :])
+                torch.linalg.solve(self.P[-1], self.E_eigvec[-1] * kz_norm[None, :])
             )
 
         # These interface products are shared by both incidence directions.
-        Vf_inv_H = torch.matmul(torch.linalg.inv(self.Vf), self.H_eigvec[-1])
+        Vf_inv_H = torch.linalg.solve(self.Vf, self.H_eigvec[-1])
         Cplus = self.E_eigvec[-1] + Vf_inv_H
         Cminus_phase = (self.E_eigvec[-1] - Vf_inv_H) * phase[None, :]
         Ctmp = torch.vstack(
