@@ -2127,30 +2127,26 @@ class rcwa:
             - torch.matmul(Sn[1], Sm[2])
         )
 
+        # Reuse the same four connection products for S and every layer's C.
+        forward = torch.matmul(tmp1, Sm[0])
+        reflected = torch.matmul(tmp2, torch.matmul(Sn[1], Sm[0]))
+        backward = torch.matmul(tmp1, torch.matmul(Sm[2], Sn[3]))
+        transmitted = torch.matmul(tmp2, Sn[3])
+
         # Layer S-matrix
-        S11 = torch.matmul(Sn[0], torch.matmul(tmp1, Sm[0]))
-        S21 = Sm[1] + torch.matmul(
-            Sm[3], torch.matmul(tmp2, torch.matmul(Sn[1], Sm[0]))
-        )
-        S12 = Sn[2] + torch.matmul(
-            Sn[0], torch.matmul(tmp1, torch.matmul(Sm[2], Sn[3]))
-        )
-        S22 = torch.matmul(Sm[3], torch.matmul(tmp2, Sn[3]))
+        S11 = torch.matmul(Sn[0], forward)
+        S21 = Sm[1] + torch.matmul(Sm[3], reflected)
+        S12 = Sn[2] + torch.matmul(Sn[0], backward)
+        S22 = torch.matmul(Sm[3], transmitted)
 
         # Mode coupling coefficients
         C = [[], []]
         for m in range(len(Cm[0])):
-            C[0].append(
-                Cm[0][m]
-                + torch.matmul(Cm[1][m], torch.matmul(tmp2, torch.matmul(Sn[1], Sm[0])))
-            )
-            C[1].append(torch.matmul(Cm[1][m], torch.matmul(tmp2, Sn[3])))
+            C[0].append(Cm[0][m] + torch.matmul(Cm[1][m], reflected))
+            C[1].append(torch.matmul(Cm[1][m], transmitted))
 
         for n in range(len(Cn[0])):
-            C[0].append(torch.matmul(Cn[0][n], torch.matmul(tmp1, Sm[0])))
-            C[1].append(
-                Cn[1][n]
-                + torch.matmul(Cn[0][n], torch.matmul(tmp1, torch.matmul(Sm[2], Sn[3])))
-            )
+            C[0].append(torch.matmul(Cn[0][n], forward))
+            C[1].append(Cn[1][n] + torch.matmul(Cn[0][n], backward))
 
         return [S11, S21, S12, S22], C
