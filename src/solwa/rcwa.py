@@ -2079,18 +2079,16 @@ class rcwa:
         Vf_inv_H = torch.linalg.solve(self.Vf, self.H_eigvec[-1])
         Cplus = self.E_eigvec[-1] + Vf_inv_H
         Cminus_phase = (self.E_eigvec[-1] - Vf_inv_H) * phase[None, :]
-        Ctmp = torch.vstack(
-            (
-                torch.hstack((Cplus, Cminus_phase)),
-                torch.hstack((Cminus_phase, Cplus)),
-            )
-        )
-        Ctmp_inv = torch.linalg.inv(Ctmp)
+        # [[A, B], [B, A]] is block-diagonal in the orthogonal +/- basis;
+        # no commutation of A and B is required. The inverse's factor 1/2
+        # cancels the factor 2 in the original matching-system right sides.
+        inverse_plus = torch.linalg.inv(Cplus + Cminus_phase)
+        inverse_minus = torch.linalg.inv(Cplus - Cminus_phase)
+        forward = inverse_plus + inverse_minus
+        backward = inverse_plus - inverse_minus
+        self.Cf.append(torch.vstack((forward, backward)))
+        self.Cb.append(torch.vstack((backward, forward)))
         E_phase = self.E_eigvec[-1] * phase[None, :]
-
-        # Multiplication by [2I; 0] or [0; 2I] selects columns of Ctmp_inv.
-        self.Cf.append(2 * Ctmp_inv[:, : 2 * self.order_N])
-        self.Cb.append(2 * Ctmp_inv[:, 2 * self.order_N :])
 
         self.layer_S11.append(
             torch.matmul(
