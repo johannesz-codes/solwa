@@ -2081,38 +2081,18 @@ class rcwa:
         backward = inverse_plus - inverse_minus
         self.Cf.append(torch.vstack((forward, backward)))
         self.Cb.append(torch.vstack((backward, forward)))
-        E_phase = self.E_eigvec[-1] * phase[None, :]
-
-        self.layer_S11.append(
-            torch.matmul(
-                E_phase,
-                self.Cf[-1][: 2 * self.order_N, :],
-            )
-            + torch.matmul(self.E_eigvec[-1], self.Cf[-1][2 * self.order_N :, :])
+        # Factor out E; diag(phase) on the left scales coefficient rows.
+        transmission = torch.matmul(
+            self.E_eigvec[-1], phase[:, None] * forward + backward
         )
-        self.layer_S21.append(
-            torch.matmul(self.E_eigvec[-1], self.Cf[-1][: 2 * self.order_N, :])
-            + torch.matmul(
-                E_phase,
-                self.Cf[-1][2 * self.order_N :, :],
-            )
-            - torch.eye(2 * self.order_N, dtype=self._dtype, device=self._device)
-        )
-        self.layer_S12.append(
-            torch.matmul(
-                E_phase,
-                self.Cb[-1][: 2 * self.order_N, :],
-            )
-            + torch.matmul(self.E_eigvec[-1], self.Cb[-1][2 * self.order_N :, :])
-            - torch.eye(2 * self.order_N, dtype=self._dtype, device=self._device)
-        )
-        self.layer_S22.append(
-            torch.matmul(self.E_eigvec[-1], self.Cb[-1][: 2 * self.order_N, :])
-            + torch.matmul(
-                E_phase,
-                self.Cb[-1][2 * self.order_N :, :],
-            )
-        )
+        reflection = torch.matmul(
+            self.E_eigvec[-1], forward + phase[:, None] * backward
+        ) - torch.eye(2 * self.order_N, dtype=self._dtype, device=self._device)
+        self.layer_S11.append(transmission)
+        self.layer_S21.append(reflection)
+        # Equal internal blocks previously had independently writable storage.
+        self.layer_S12.append(reflection.clone())
+        self.layer_S22.append(transmission.clone())
 
     def _RS_prod(self, Sm, Sn, Cm, Cn):
         # S11 = S[0] / S21 = S[1] / S12 = S[2] / S22 = S[3]
