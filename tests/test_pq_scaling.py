@@ -21,18 +21,23 @@ def dense_pq(sim):
 @pytest.mark.parametrize("lossy", [False, True])
 def test_patterned_pq_and_material_gradients_match_dense_formula(lossy):
     device = torch.device("cpu")
-    contrasts = torch.tensor([2.7, .6], dtype=torch.float64, requires_grad=True)
-    axis = (torch.arange(32, dtype=torch.float64) + .5) / 32
+    contrasts = torch.tensor([2.7, 0.6], dtype=torch.float64, requires_grad=True)
+    axis = (torch.arange(32, dtype=torch.float64) + 0.5) / 32
     x, y = torch.meshgrid(axis, axis, indexing="ij")
-    eps_mask = ((x > .18) & (x < .69) & (y > .26) & (y < .81)).to(torch.float64)
-    mu_mask = ((x > .31) & (x < .86) & (y > .12) & (y < .58)).to(torch.float64)
-    eps = 1. + contrasts[0] * (1. + (.07j if lossy else 0.)) * eps_mask
-    mu = 1.2 + contrasts[1] * (1. + (.11j if lossy else 0.)) * mu_mask
-    sim = solwa.rcwa(freq=1 / 532., order=[1, 2], L=[300., 340.],
-                     dtype=torch.complex128, device=device)
-    sim.add_input_layer(eps=1.)
-    sim.set_incident_angle(inc_ang=.19, azi_ang=.37)
-    sim.add_layer(thickness=127., eps=eps, mu=mu)
+    eps_mask = ((x > 0.18) & (x < 0.69) & (y > 0.26) & (y < 0.81)).to(torch.float64)
+    mu_mask = ((x > 0.31) & (x < 0.86) & (y > 0.12) & (y < 0.58)).to(torch.float64)
+    eps = 1.0 + contrasts[0] * (1.0 + (0.07j if lossy else 0.0)) * eps_mask
+    mu = 1.2 + contrasts[1] * (1.0 + (0.11j if lossy else 0.0)) * mu_mask
+    sim = solwa.rcwa(
+        freq=1 / 532.0,
+        order=[1, 2],
+        L=[300.0, 340.0],
+        dtype=torch.complex128,
+        device=device,
+    )
+    sim.add_input_layer(eps=1.0)
+    sim.set_incident_angle(inc_ang=0.19, azi_ang=0.37)
+    sim.add_layer(thickness=127.0, eps=eps, mu=mu)
 
     actual = (sim.P[-1], sim.Q[-1])
     expected = dense_pq(sim)
@@ -43,12 +48,18 @@ def test_patterned_pq_and_material_gradients_match_dense_formula(lossy):
     # that could hide a sign mistake or transposition. This graph stops at P/Q
     # and does not differentiate through eigenvectors or layer scattering.
     weights = torch.arange(actual[0].numel(), dtype=torch.float64).reshape_as(actual[0])
-    weights = torch.sin(weights * .37) + 1j * torch.cos(weights * .23)
+    weights = torch.sin(weights * 0.37) + 1j * torch.cos(weights * 0.23)
 
     def objective(matrices):
-        return sum((weight * matrix).real.sum() for weight, matrix in
-                   zip((weights, weights.T * (.3 + .8j)), matrices))
+        return sum(
+            (weight * matrix).real.sum()
+            for weight, matrix in zip((weights, weights.T * (0.3 + 0.8j)), matrices)
+        )
 
-    actual_gradient = torch.autograd.grad(objective(actual), contrasts, retain_graph=True)[0]
+    actual_gradient = torch.autograd.grad(
+        objective(actual), contrasts, retain_graph=True
+    )[0]
     expected_gradient = torch.autograd.grad(objective(expected), contrasts)[0]
-    torch.testing.assert_close(actual_gradient, expected_gradient, atol=1e-11, rtol=1e-11)
+    torch.testing.assert_close(
+        actual_gradient, expected_gradient, atol=1e-11, rtol=1e-11
+    )

@@ -5,7 +5,7 @@ Compute the four connection products once per Redheffer composition and reuse th
 ## Stack order
 
 Merge in numerical order, 01 through 07. This branch is `codex/rcwa-perf-06-redheffer` and
-its original base is `codex/rcwa-perf-05-pq` at `4129f564168ab2d703a795a484e0df97fa293257`.
+its original base is `codex/rcwa-perf-05-pq` at `0a85b88930dca4c51739a3d35b7f8c46ffa2e149`.
 The repository allows squash merges only. After the predecessor is squash-merged,
 rebase this branch onto the updated main, dropping the original base shown above,
 and retarget its PR to main. Do not merge a successor into a predecessor branch.
@@ -56,3 +56,42 @@ python benchmarks/benchmark_rcwa_revisions.py \
   --baseline 4129f564168ab2d703a795a484e0df97fa293257 --threads 1 --orders 3 5 --layers 1 3 \
   --repeats 7 --output /tmp/rcwa-perf-06.json
 ```
+
+## RAM impact
+
+| CPU workload | Parent peak MiB (range) | Current peak MiB (range) | Delta MiB | Interpretation |
+|---|---:|---:|---:|---|
+| Forward only | 781.36 (781.24–783.42) | 785.68 (784.41–786.06) | +4.32 | higher peak in these samples |
+| Forward + backward | 929.50 (929.46–931.49) | 899.80 (897.41–900.89) | -29.70 | lower peak in these samples |
+
+
+Median and range of **three fresh Linux child processes per revision and mode**,
+order [5,5], three layers, CPU complex128, one thread, same geometry/materials
+as the timing experiment. Peak is process `ru_maxrss`, including Python,
+PyTorch/MKL, native workspaces and allocator caches; the import high-water mark
+alone is roughly 658 MiB on this host. It is not live-tensor memory or GPU VRAM.
+Forward+backward differentiates zero-order Txx with respect to the shared
+permittivity contrast; all other geometry and solver settings are identical.
+No timing benchmark ran concurrently with these memory measurements.
+Three samples show dispersion, not a statistical confidence interval.
+
+**Tensor-level explanation:** Four m by m connection products are retained together (up to 3.574 MiB here) and reused across all coefficient updates. This trades extra live temporary storage for less recomputation; persistent C/S output sizes are unchanged. Autograd graph reuse can change the tradeoff in backward workloads.
+
+**GPU:** no CUDA/VRAM measurement is available. Tensor-shape reasoning suggests
+which allocations change, but the CPU RSS deltas must not be advertised as
+GPU-memory savings. Guarded mode, actual device offloading and other gradient
+objectives require their own memory measurements.
+
+[Forward raw data](../../benchmarks/results/rcwa-perf-06-ram-forward.json) · [Forward+backward raw data](../../benchmarks/results/rcwa-perf-06-ram-backward.json)
+
+```bash
+python benchmarks/benchmark_rcwa_memory.py \
+  --baseline 4129f564168ab2d703a795a484e0df97fa293257 --current 0ff4b81e33837dbbade5dccddaaf3d612756e11e \
+  --orders 5 --layers 3 --repeats 3 --mode forward --output /tmp/ram-forward.json
+python benchmarks/benchmark_rcwa_memory.py \
+  --baseline 4129f564168ab2d703a795a484e0df97fa293257 --current 0ff4b81e33837dbbade5dccddaaf3d612756e11e \
+  --orders 5 --layers 3 --repeats 3 --mode backward --output /tmp/ram-backward.json
+```
+
+The RAM evidence commits preserve the measured source revisions in ancestry;
+only benchmark tooling, raw data and documentation were added afterward.
