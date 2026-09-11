@@ -5,7 +5,7 @@ Build the patterned-material P/Q blocks using left row and right column scaling,
 ## Stack order
 
 Merge in numerical order, 01 through 07. This branch is `codex/rcwa-perf-05-pq` and
-its original base is `codex/rcwa-perf-04-block` at `5461143b3adf26cccf797ca0e862467339e6da11`.
+its original base is `codex/rcwa-perf-04-block` at `b530cd7345ef70acea31ccc992fd79f6df3debc9`.
 The repository allows squash merges only. After the predecessor is squash-merged,
 rebase this branch onto the updated main, dropping the original base shown above,
 and retarget its PR to main. Do not merge a successor into a predecessor branch.
@@ -56,3 +56,42 @@ python benchmarks/benchmark_rcwa_revisions.py \
   --baseline 5461143b3adf26cccf797ca0e862467339e6da11 --threads 1 --orders 3 5 --layers 1 3 \
   --repeats 7 --output /tmp/rcwa-perf-05.json
 ```
+
+## RAM impact
+
+| CPU workload | Parent peak MiB (range) | Current peak MiB (range) | Delta MiB | Interpretation |
+|---|---:|---:|---:|---|
+| Forward only | 771.38 (771.00–772.50) | 779.93 (779.82–780.84) | +8.55 | higher peak in these samples |
+| Forward + backward | 928.29 (924.34–932.46) | 927.70 (925.96–929.54) | -0.59 | ranges overlap; no resolved improvement/regression |
+
+
+Median and range of **three fresh Linux child processes per revision and mode**,
+order [5,5], three layers, CPU complex128, one thread, same geometry/materials
+as the timing experiment. Peak is process `ru_maxrss`, including Python,
+PyTorch/MKL, native workspaces and allocator caches; the import high-water mark
+alone is roughly 658 MiB on this host. It is not live-tensor memory or GPU VRAM.
+Forward+backward differentiates zero-order Txx with respect to the shared
+permittivity contrast; all other geometry and solver settings are identical.
+No timing benchmark ran concurrently with these memory measurements.
+Three samples show dispersion, not a statistical confidence interval.
+
+**Tensor-level explanation:** Row/column scaling removes stacked diagonal operands and dense multiplication workspaces, but changes temporary lifetimes and allocator behavior. P/Q remain dense and have exactly the same size. The observed higher forward RSS is a real tradeoff in this run; fewer arithmetic operations do not establish lower RAM.
+
+**GPU:** no CUDA/VRAM measurement is available. Tensor-shape reasoning suggests
+which allocations change, but the CPU RSS deltas must not be advertised as
+GPU-memory savings. Guarded mode, actual device offloading and other gradient
+objectives require their own memory measurements.
+
+[Forward raw data](../../benchmarks/results/rcwa-perf-05-ram-forward.json) · [Forward+backward raw data](../../benchmarks/results/rcwa-perf-05-ram-backward.json)
+
+```bash
+python benchmarks/benchmark_rcwa_memory.py \
+  --baseline 5461143b3adf26cccf797ca0e862467339e6da11 --current 4129f564168ab2d703a795a484e0df97fa293257 \
+  --orders 5 --layers 3 --repeats 3 --mode forward --output /tmp/ram-forward.json
+python benchmarks/benchmark_rcwa_memory.py \
+  --baseline 5461143b3adf26cccf797ca0e862467339e6da11 --current 4129f564168ab2d703a795a484e0df97fa293257 \
+  --orders 5 --layers 3 --repeats 3 --mode backward --output /tmp/ram-backward.json
+```
+
+The RAM evidence commits preserve the measured source revisions in ancestry;
+only benchmark tooling, raw data and documentation were added afterward.
