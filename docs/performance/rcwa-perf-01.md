@@ -56,3 +56,42 @@ python benchmarks/benchmark_rcwa_revisions.py \
   --baseline ab725611e7a510042c831474e38a0be63e780aa2 --threads 1 --orders 3 5 --layers 1 3 \
   --repeats 7 --output /tmp/rcwa-perf-01.json
 ```
+
+## RAM impact
+
+| CPU workload | Parent peak MiB (range) | Current peak MiB (range) | Delta MiB | Interpretation |
+|---|---:|---:|---:|---|
+| Forward only | 784.95 (783.70–788.37) | 783.78 (783.61–783.86) | -1.17 | ranges overlap; no resolved improvement/regression |
+| Forward + backward | 998.89 (998.81–1001.42) | 963.49 (962.95–968.41) | -35.39 | lower peak in these samples |
+
+
+Median and range of **three fresh Linux child processes per revision and mode**,
+order [5,5], three layers, CPU complex128, one thread, same geometry/materials
+as the timing experiment. Peak is process `ru_maxrss`, including Python,
+PyTorch/MKL, native workspaces and allocator caches; the import high-water mark
+alone is roughly 658 MiB on this host. It is not live-tensor memory or GPU VRAM.
+Forward+backward differentiates zero-order Txx with respect to the shared
+permittivity contrast; all other geometry and solver settings are identical.
+No timing benchmark ran concurrently with these memory measurements.
+Three samples show dispersion, not a statistical confidence interval.
+
+**Tensor-level explanation:** Persistent P/Q, eigenvectors, coupling and S outputs retain the same shapes. Reusing C^-1 and E*phase reduces repeated allocations, but keeps these temporaries live longer; a smaller peak is not guaranteed. Autograd can share saved intermediate graphs instead of duplicating them.
+
+**GPU:** no CUDA/VRAM measurement is available. Tensor-shape reasoning suggests
+which allocations change, but the CPU RSS deltas must not be advertised as
+GPU-memory savings. Guarded mode, actual device offloading and other gradient
+objectives require their own memory measurements.
+
+[Forward raw data](../../benchmarks/results/rcwa-perf-01-ram-forward.json) · [Forward+backward raw data](../../benchmarks/results/rcwa-perf-01-ram-backward.json)
+
+```bash
+python benchmarks/benchmark_rcwa_memory.py \
+  --baseline ab725611e7a510042c831474e38a0be63e780aa2 --current 7a4132a0415746b65f714509a4426a2676b2d8ac \
+  --orders 5 --layers 3 --repeats 3 --mode forward --output /tmp/ram-forward.json
+python benchmarks/benchmark_rcwa_memory.py \
+  --baseline ab725611e7a510042c831474e38a0be63e780aa2 --current 7a4132a0415746b65f714509a4426a2676b2d8ac \
+  --orders 5 --layers 3 --repeats 3 --mode backward --output /tmp/ram-backward.json
+```
+
+The RAM evidence commits preserve the measured source revisions in ancestry;
+only benchmark tooling, raw data and documentation were added afterward.
