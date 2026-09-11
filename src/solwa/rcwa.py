@@ -2018,10 +2018,8 @@ class rcwa:
         self.E_eigvec.append(E_eigvec)
 
     def _solve_layer_smatrix(self):
-        Kz_norm = torch.diag(self.kz_norm[-1])
-        phase = torch.diag(
-            torch.exp(1.0j * self.omega * self.kz_norm[-1] * self.thickness[-1])
-        )
+        kz_norm = self.kz_norm[-1]
+        phase = torch.exp(1.0j * self.omega * kz_norm * self.thickness[-1])
 
         Pinv_tmp = torch.linalg.inv(self.P[-1])
         if self.avoid_Pinv_instability:
@@ -2060,24 +2058,26 @@ class rcwa:
 
             if self.Pinv_instability[-1] < self.max_Pinv_instability:
                 self.H_eigvec.append(
-                    torch.matmul(Pinv_tmp, torch.matmul(self.E_eigvec[-1], Kz_norm))
+                    torch.matmul(Pinv_tmp, self.E_eigvec[-1] * kz_norm[None, :])
                 )
             else:
                 self.H_eigvec.append(
                     torch.matmul(
                         self.Q[-1],
-                        torch.matmul(self.E_eigvec[-1], torch.linalg.inv(Kz_norm)),
+                        torch.matmul(
+                            self.E_eigvec[-1], torch.linalg.inv(torch.diag(kz_norm))
+                        ),
                     )
                 )
         else:
             self.H_eigvec.append(
-                torch.matmul(Pinv_tmp, torch.matmul(self.E_eigvec[-1], Kz_norm))
+                torch.matmul(Pinv_tmp, self.E_eigvec[-1] * kz_norm[None, :])
             )
 
         # These interface products are shared by both incidence directions.
         Vf_inv_H = torch.matmul(torch.linalg.inv(self.Vf), self.H_eigvec[-1])
         Cplus = self.E_eigvec[-1] + Vf_inv_H
-        Cminus_phase = torch.matmul(self.E_eigvec[-1] - Vf_inv_H, phase)
+        Cminus_phase = (self.E_eigvec[-1] - Vf_inv_H) * phase[None, :]
         Ctmp = torch.vstack(
             (
                 torch.hstack((Cplus, Cminus_phase)),
@@ -2085,45 +2085,11 @@ class rcwa:
             )
         )
         Ctmp_inv = torch.linalg.inv(Ctmp)
-        E_phase = torch.matmul(self.E_eigvec[-1], phase)
+        E_phase = self.E_eigvec[-1] * phase[None, :]
 
-        # Mode coupling coefficients
-        self.Cf.append(
-            torch.matmul(
-                Ctmp_inv,
-                torch.vstack(
-                    (
-                        2
-                        * torch.eye(
-                            2 * self.order_N, dtype=self._dtype, device=self._device
-                        ),
-                        torch.zeros(
-                            [2 * self.order_N, 2 * self.order_N],
-                            dtype=self._dtype,
-                            device=self._device,
-                        ),
-                    )
-                ),
-            )
-        )
-        self.Cb.append(
-            torch.matmul(
-                Ctmp_inv,
-                torch.vstack(
-                    (
-                        torch.zeros(
-                            [2 * self.order_N, 2 * self.order_N],
-                            dtype=self._dtype,
-                            device=self._device,
-                        ),
-                        2
-                        * torch.eye(
-                            2 * self.order_N, dtype=self._dtype, device=self._device
-                        ),
-                    )
-                ),
-            )
-        )
+        # Multiplication by [2I; 0] or [0; 2I] selects columns of Ctmp_inv.
+        self.Cf.append(2 * Ctmp_inv[:, : 2 * self.order_N])
+        self.Cb.append(2 * Ctmp_inv[:, 2 * self.order_N :])
 
         self.layer_S11.append(
             torch.matmul(
