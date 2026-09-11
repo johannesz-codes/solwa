@@ -5,7 +5,7 @@ For C=[[A,B],[B,A]], the orthogonal plus/minus basis yields diag(A+B,A-B) withou
 ## Stack order
 
 Merge in numerical order, 01 through 07. This branch is `codex/rcwa-perf-04-block` and
-its original base is `codex/rcwa-perf-03-solve` at `8d2776eb0c365e4dc46011899b1b6963545b4500`.
+its original base is `codex/rcwa-perf-03-solve` at `69f4032eebd2231c2f2debf81ed2b24eb881dce1`.
 The repository allows squash merges only. After the predecessor is squash-merged,
 rebase this branch onto the updated main, dropping the original base shown above,
 and retarget its PR to main. Do not merge a successor into a predecessor branch.
@@ -56,3 +56,42 @@ python benchmarks/benchmark_rcwa_revisions.py \
   --baseline 8d2776eb0c365e4dc46011899b1b6963545b4500 --threads 1 --orders 3 5 --layers 1 3 \
   --repeats 7 --output /tmp/rcwa-perf-04.json
 ```
+
+## RAM impact
+
+| CPU workload | Parent peak MiB (range) | Current peak MiB (range) | Delta MiB | Interpretation |
+|---|---:|---:|---:|---|
+| Forward only | 779.77 (779.73–780.02) | 771.53 (771.25–776.02) | -8.23 | lower peak in these samples |
+| Forward + backward | 940.04 (937.82–940.50) | 930.28 (929.55–935.02) | -9.76 | lower peak in these samples |
+
+
+Median and range of **three fresh Linux child processes per revision and mode**,
+order [5,5], three layers, CPU complex128, one thread, same geometry/materials
+as the timing experiment. Peak is process `ru_maxrss`, including Python,
+PyTorch/MKL, native workspaces and allocator caches; the import high-water mark
+alone is roughly 658 MiB on this host. It is not live-tensor memory or GPU VRAM.
+Forward+backward differentiates zero-order Txx with respect to the shared
+permittivity contrast; all other geometry and solver settings are identical.
+No timing benchmark ran concurrently with these memory measurements.
+Three samples show dispersion, not a statistical confidence interval.
+
+**Tensor-level explanation:** The explicit 2m by 2m matching matrix and its inverse (3.574 MiB each here) are replaced by two m by m inverses (0.894 MiB each) plus m by m sums/differences. Cf/Cb and output dimensions are unchanged. This lowers principal matching temporaries, not every solver allocation.
+
+**GPU:** no CUDA/VRAM measurement is available. Tensor-shape reasoning suggests
+which allocations change, but the CPU RSS deltas must not be advertised as
+GPU-memory savings. Guarded mode, actual device offloading and other gradient
+objectives require their own memory measurements.
+
+[Forward raw data](../../benchmarks/results/rcwa-perf-04-ram-forward.json) · [Forward+backward raw data](../../benchmarks/results/rcwa-perf-04-ram-backward.json)
+
+```bash
+python benchmarks/benchmark_rcwa_memory.py \
+  --baseline 8d2776eb0c365e4dc46011899b1b6963545b4500 --current 5461143b3adf26cccf797ca0e862467339e6da11 \
+  --orders 5 --layers 3 --repeats 3 --mode forward --output /tmp/ram-forward.json
+python benchmarks/benchmark_rcwa_memory.py \
+  --baseline 8d2776eb0c365e4dc46011899b1b6963545b4500 --current 5461143b3adf26cccf797ca0e862467339e6da11 \
+  --orders 5 --layers 3 --repeats 3 --mode backward --output /tmp/ram-backward.json
+```
+
+The RAM evidence commits preserve the measured source revisions in ancestry;
+only benchmark tooling, raw data and documentation were added afterward.
