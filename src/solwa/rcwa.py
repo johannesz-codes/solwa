@@ -1968,41 +1968,34 @@ class rcwa:
         self.E_eigvec.append(E_eigvec)
 
     def _eigen_decomposition(self):
-        # H to E transformation matirx
-        P_tmp = torch.matmul(
-            torch.vstack((self.Kx_norm, self.Ky_norm)),
-            torch.linalg.inv(self.eps_conv[-1]),
-        )
+        # Kx and Ky are diagonal: scale rows/columns instead of dense products.
+        kx, ky = self.Kx_norm_dn, self.Ky_norm_dn
+        eps_inv = torch.linalg.inv(self.eps_conv[-1])
+        mu_inv = torch.linalg.inv(self.mu_conv[-1])
+        eps, mu = self.eps_conv[-1], self.mu_conv[-1]
+
+        def scale(left, matrix, right):
+            return left[:, None] * matrix * right[None, :]
+
+        # H to E transformation matrix
         self.P.append(
-            torch.hstack(
+            torch.vstack(
                 (
-                    torch.vstack(
-                        (torch.zeros_like(self.mu_conv[-1]), -self.mu_conv[-1])
-                    ),
-                    torch.vstack(
-                        (self.mu_conv[-1], torch.zeros_like(self.mu_conv[-1]))
+                    torch.hstack((scale(kx, eps_inv, ky), mu - scale(kx, eps_inv, kx))),
+                    torch.hstack(
+                        (scale(ky, eps_inv, ky) - mu, -scale(ky, eps_inv, kx))
                     ),
                 )
             )
-            + torch.matmul(P_tmp, torch.hstack((self.Ky_norm, -self.Kx_norm)))
         )
         # E to H transformation matrix
-        Q_tmp = torch.matmul(
-            torch.vstack((self.Kx_norm, self.Ky_norm)),
-            torch.linalg.inv(self.mu_conv[-1]),
-        )
         self.Q.append(
-            torch.hstack(
+            torch.vstack(
                 (
-                    torch.vstack(
-                        (torch.zeros_like(self.eps_conv[-1]), self.eps_conv[-1])
-                    ),
-                    torch.vstack(
-                        (-self.eps_conv[-1], torch.zeros_like(self.eps_conv[-1]))
-                    ),
+                    torch.hstack((-scale(kx, mu_inv, ky), scale(kx, mu_inv, kx) - eps)),
+                    torch.hstack((eps - scale(ky, mu_inv, ky), scale(ky, mu_inv, kx))),
                 )
             )
-            + torch.matmul(Q_tmp, torch.hstack((-self.Ky_norm, self.Kx_norm)))
         )
 
         # Eigen-decomposition
