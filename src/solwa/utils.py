@@ -34,25 +34,41 @@ def _axis_tensor(values, sim):
 
 
 def _uniform_step(axis, eps):
-    """Return the spacing of an equally spaced, increasing axis, else None.
+    """Infer the spacing of an equally spaced, increasing axis.
 
-    The spacing is the mean step ``(axis[-1] - axis[0]) / (n - 1)``. Each
-    individual step must be positive and may deviate from it only by the
-    rounding error expected for coordinates of this magnitude with machine
-    epsilon ``eps``, so the check holds for float32 grids at any scale while
-    rejecting materially uneven spacing.
+    The spacing is the mean step ``(axis[-1] - axis[0]) / (n - 1)``. Every
+    coordinate must be finite and every individual step positive and within
+    the rounding error expected for coordinates of this magnitude with
+    machine epsilon ``eps``. Grids from :class:`solwa.geometry` stay below
+    ``eps * max|x|``; the bound allows four times that. If the bound exceeds
+    1 % of the step, the precision cannot tell uniform from uneven spacing
+    and the axis is rejected.
+
+    Returns
+    -------
+    tuple
+        ``(step, None)`` on success, otherwise ``(None, reason)`` with
+        ``reason`` one of ``"nonfinite"``, ``"uneven"`` or ``"precision"``.
     """
     if axis.ndim != 1 or axis.numel() < 2 or not axis.is_floating_point():
-        return None
+        return None, "uneven"
+
+    values = axis.detach()
+    if not torch.all(torch.isfinite(values)):
+        return None, "nonfinite"
 
     step = (axis[-1] - axis[0]) / (axis.numel() - 1)
-    values = axis.detach()
     spacing = values[1:] - values[:-1]
-    tol = 16 * eps * values.abs().max()
-    if torch.any(spacing <= 0) or torch.any((spacing - step.detach()).abs() > tol):
-        return None
+    if torch.any(spacing <= 0):
+        return None, "uneven"
 
-    return step
+    tol = 4 * eps * values.abs().max()
+    if tol > 0.01 * step.detach():
+        return None, "precision"
+    if torch.any((spacing - step.detach()).abs() > tol):
+        return None, "uneven"
+
+    return step, None
 
 
 def _cell_step(cells, eps, axis_name):
@@ -67,8 +83,16 @@ def _cell_step(cells, eps, axis_name):
             "cell width can be inferred."
         )
 
-    step = _uniform_step(cells, eps)
-    if step is None:
+    step, reason = _uniform_step(cells, eps)
+    if reason == "nonfinite":
+        raise ValueError(f"{axis_name} must contain only finite cell centers.")
+    if reason == "precision":
+        raise ValueError(
+            f"The precision of {axis_name} is too low to verify equal cell "
+            "spacing at this coordinate magnitude. Use float64 coordinates or "
+            "shift the axis closer to zero."
+        )
+    if reason is not None:
         raise ValueError(
             f"{axis_name} must contain strictly increasing, equally spaced centers "
             "of adjacent cells."
@@ -84,8 +108,8 @@ def _looks_cell_centered(axis, eps):
     coordinate scale: the axis must be equally spaced and its points must sit
     half a step off the multiples of that step, as for ``(i + 0.5) * dx``.
     """
-    step = _uniform_step(axis, eps)
-    if step is None:
+    step, reason = _uniform_step(axis, eps)
+    if reason is not None:
         return False
 
     offset = torch.remainder(axis[0].detach() / step.detach(), 1.0)

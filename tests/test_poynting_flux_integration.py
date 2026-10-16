@@ -143,6 +143,35 @@ def test_poynting_flux_rejects_non_increasing_float32_cell_centers(x_cells):
         poynting_flux(sim, layer=0, x_cells=x_cells, y_cells=y_cells)
 
 
+def test_poynting_flux_rejects_float32_cells_too_coarse_to_check_spacing():
+    # At this magnitude float32 rounding is comparable to the step, so the
+    # 1 vs 2 gaps cannot be told apart from rounding and must be rejected.
+    sim = ConstantPoyntingSimulation32()
+    x_cells = torch.tensor([1000000.5, 1000001.5, 1000003.5], dtype=torch.float32)
+    y_cells = torch.tensor([0.5, 1.5, 2.5], dtype=torch.float32)
+
+    with pytest.raises(ValueError, match="precision"):
+        poynting_flux(sim, layer=0, x_cells=x_cells, y_cells=y_cells)
+
+
+@pytest.mark.parametrize(
+    "x_cells",
+    [
+        [0.5, float("nan"), 2.5],
+        [0.5, 1.5, float("inf")],
+        [float("-inf"), 1.5, 2.5],
+    ],
+    ids=["nan", "inf", "neg-inf"],
+)
+def test_poynting_flux_rejects_non_finite_cell_centers(x_cells):
+    sim = ConstantPoyntingSimulation()
+    x_cells = torch.tensor(x_cells, dtype=torch.float64)
+    y_cells = torch.tensor([0.5, 1.5, 2.5], dtype=torch.float64)
+
+    with pytest.raises(ValueError, match="finite"):
+        poynting_flux(sim, layer=0, x_cells=x_cells, y_cells=y_cells)
+
+
 def test_poynting_flux_rejects_nonuniform_small_scale_cell_centers():
     sim = ConstantPoyntingSimulation()
     x_cells = torch.tensor([1e-9, 2e-9, 4e-9], dtype=torch.float64)
