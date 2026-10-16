@@ -114,6 +114,35 @@ def test_poynting_flux_accepts_float32_cell_grid_with_rounding():
     assert torch.isclose(flux, torch.tensor(300.0**2), rtol=1e-5)
 
 
+def test_poynting_flux_accepts_float32_cells_in_complex128_simulation():
+    # Promoting float32 centers to float64 keeps their float32 rounding, so
+    # the spacing check must not apply a float64 tolerance to them.
+    geo = _geometry(dtype=torch.float32)
+    sim = ConstantPoyntingSimulation()
+
+    flux = poynting_flux(sim, layer=0, x_cells=geo.x, y_cells=geo.y)
+
+    assert flux.dtype == torch.float64
+    assert torch.isclose(flux, torch.tensor(1.0, dtype=torch.float64), rtol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "x_cells",
+    [
+        [1000000.5, 1000001.5, 1000001.5],
+        [1000000.0, 1000001.0, 1000000.5],
+    ],
+    ids=["duplicate", "backward"],
+)
+def test_poynting_flux_rejects_non_increasing_float32_cell_centers(x_cells):
+    sim = ConstantPoyntingSimulation32()
+    x_cells = torch.tensor(x_cells, dtype=torch.float32)
+    y_cells = torch.tensor([0.5, 1.5, 2.5], dtype=torch.float32)
+
+    with pytest.raises(ValueError, match="strictly increasing"):
+        poynting_flux(sim, layer=0, x_cells=x_cells, y_cells=y_cells)
+
+
 def test_poynting_flux_rejects_nonuniform_small_scale_cell_centers():
     sim = ConstantPoyntingSimulation()
     x_cells = torch.tensor([1e-9, 2e-9, 4e-9], dtype=torch.float64)
