@@ -20,13 +20,17 @@ class ConstantPoyntingSimulation:
         return sx, sy, sz
 
 
-def _geometry(n=100):
+class ConstantPoyntingSimulation32(ConstantPoyntingSimulation):
+    _dtype = torch.complex64
+
+
+def _geometry(n=100, L=1.0, dtype=torch.float64):
     geo = solwa.geometry(
-        Lx=1.0,
-        Ly=1.0,
+        Lx=L,
+        Ly=L,
         nx=n,
         ny=n,
-        dtype=torch.float64,
+        dtype=dtype,
         device=torch.device("cpu"),
     )
     geo.grid()
@@ -97,6 +101,26 @@ def test_rcwa_wrapper_forwards_cell_coordinates():
     )
 
     assert torch.isclose(flux, torch.tensor(1.0, dtype=geo.dtype), atol=1e-12)
+
+
+def test_poynting_flux_accepts_float32_cell_grid_with_rounding():
+    # float32 centers of a 300-wide cell with 1000 cells carry spacing
+    # roundoff of ~2e-5, which must not be mistaken for uneven cells.
+    geo = _geometry(n=1000, L=300.0, dtype=torch.float32)
+    sim = ConstantPoyntingSimulation32()
+
+    flux = poynting_flux(sim, layer=0, x_cells=geo.x, y_cells=geo.y)
+
+    assert torch.isclose(flux, torch.tensor(300.0**2), rtol=1e-5)
+
+
+def test_poynting_flux_rejects_nonuniform_small_scale_cell_centers():
+    sim = ConstantPoyntingSimulation()
+    x_cells = torch.tensor([1e-9, 2e-9, 4e-9], dtype=torch.float64)
+    y_cells = torch.tensor([1e-9, 2e-9, 3e-9], dtype=torch.float64)
+
+    with pytest.raises(ValueError, match="equally spaced"):
+        poynting_flux(sim, layer=0, x_cells=x_cells, y_cells=y_cells)
 
 
 def test_poynting_flux_warns_when_points_look_cell_centered():

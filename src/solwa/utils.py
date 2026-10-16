@@ -16,6 +16,27 @@ def _axis_tensor(values, sim):
     return torch.as_tensor(values, dtype=dtype, device=getattr(sim, "_device", None))
 
 
+def _uniform_step(axis):
+    """Return the spacing of an equally spaced, increasing axis, else None.
+
+    The spacing is the mean step ``(axis[-1] - axis[0]) / (n - 1)``. Each
+    individual step may deviate from it only by the rounding error expected
+    for coordinates of this magnitude and dtype, so the check holds for
+    float32 grids at any scale while rejecting materially uneven spacing.
+    """
+    if axis.ndim != 1 or axis.numel() < 2 or not axis.is_floating_point():
+        return None
+
+    step = (axis[-1] - axis[0]) / (axis.numel() - 1)
+    values = axis.detach()
+    spacing = values[1:] - values[:-1]
+    tol = 16 * torch.finfo(values.dtype).eps * values.abs().max()
+    if step.detach() <= 0 or torch.any((spacing - step.detach()).abs() > tol):
+        return None
+
+    return step
+
+
 def _cell_step(cells, axis_name):
     """Return the width of adjacent, equally sized cells from their centers."""
     if cells.ndim != 1:
@@ -28,11 +49,8 @@ def _cell_step(cells, axis_name):
             "cell width can be inferred."
         )
 
-    spacing = cells[1:] - cells[:-1]
-    step = spacing[0]
-    if torch.any(spacing <= 0) or not torch.allclose(
-        spacing, torch.full_like(spacing, step)
-    ):
+    step = _uniform_step(cells)
+    if step is None:
         raise ValueError(
             f"{axis_name} must contain strictly increasing, equally spaced centers "
             "of adjacent cells."
@@ -48,18 +66,11 @@ def _looks_cell_centered(axis):
     coordinate scale: the axis must be equally spaced and its points must sit
     half a step off the multiples of that step, as for ``(i + 0.5) * dx``.
     """
-    if axis.ndim != 1 or axis.numel() < 2:
+    step = _uniform_step(axis)
+    if step is None:
         return False
 
-    axis = axis.detach()
-    spacing = axis[1:] - axis[:-1]
-    step = spacing[0]
-    if step <= 0 or not torch.allclose(
-        spacing, torch.full_like(spacing, step), rtol=1e-3, atol=0.0
-    ):
-        return False
-
-    offset = torch.remainder(axis[0] / step, 1.0)
+    offset = torch.remainder(axis[0].detach() / step.detach(), 1.0)
     return bool(torch.abs(offset - 0.5) < 1e-3)
 
 
