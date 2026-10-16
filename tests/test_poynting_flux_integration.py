@@ -172,6 +172,25 @@ def test_poynting_flux_rejects_non_finite_cell_centers(x_cells):
         poynting_flux(sim, layer=0, x_cells=x_cells, y_cells=y_cells)
 
 
+def test_poynting_flux_keeps_float64_points_in_complex64_simulation():
+    # Rounding these x coordinates to float32 would merge them and give 0.
+    sim = ConstantPoyntingSimulation32()
+    x_points = torch.tensor([1e8, 1e8 + 1.0], dtype=torch.float64)
+    y_points = torch.tensor([0.0, 1.0], dtype=torch.float64)
+
+    flux = poynting_flux(sim, layer=0, x_points=x_points, y_points=y_points)
+
+    assert torch.isclose(flux, torch.tensor(1.0, dtype=flux.dtype))
+
+
+def test_poynting_flux_warns_for_float32_cell_subset_far_from_origin():
+    geo = _geometry(n=1000, L=300.0, dtype=torch.float32)
+    sim = ConstantPoyntingSimulation32()
+
+    with pytest.warns(UserWarning, match="x_cells/y_cells"):
+        poynting_flux(sim, layer=0, x_points=geo.x[900:910], y_points=geo.y[900:910])
+
+
 def test_poynting_flux_rejects_nonuniform_small_scale_cell_centers():
     sim = ConstantPoyntingSimulation()
     x_cells = torch.tensor([1e-9, 2e-9, 4e-9], dtype=torch.float64)

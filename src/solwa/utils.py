@@ -4,12 +4,14 @@ import numpy as np
 import torch
 
 
-def _axis_tensor(values, sim):
-    """Convert coordinates to a real tensor on the simulation device.
+def _axis_tensors(values, sim):
+    """Convert coordinates for field evaluation and for quadrature.
 
-    Returns the tensor and the machine epsilon of the coarser of the input
-    and output precisions. Promoting float32 coordinates to float64 keeps
-    their float32 rounding error, so spacing checks must use that epsilon.
+    Returns ``(field_axis, quad_axis)``. ``field_axis`` has the real dtype that
+    matches the simulation and is passed to ``sim.poynting_xy``. ``quad_axis``
+    keeps the floating-point precision of the input, so quadrature weights
+    and spacing checks are never degraded by a lower-precision simulation.
+    Non-floating inputs (lists, integer arrays) are read as float64.
     """
     sim_dtype = getattr(sim, "_dtype", None)
     if sim_dtype == torch.complex64:
@@ -18,28 +20,26 @@ def _axis_tensor(values, sim):
         dtype = torch.float64
     else:
         dtype = None
+    device = getattr(sim, "_device", None)
 
-    axis = torch.as_tensor(values, dtype=dtype, device=getattr(sim, "_device", None))
+    if torch.is_tensor(values):
+        quad_axis = values.to(device=device)
+    else:
+        quad_axis = torch.as_tensor(np.asarray(values), device=device)
+    if not quad_axis.is_floating_point():
+        quad_axis = quad_axis.to(torch.float64)
 
-    source_dtype = getattr(values, "dtype", torch.float64)
-    if not isinstance(source_dtype, torch.dtype):
-        # NumPy arrays and scalars: map to the matching torch dtype.
-        source_dtype = torch.from_numpy(np.empty(0, dtype=source_dtype)).dtype
-    eps = 0.0
-    for dt in (source_dtype, axis.dtype):
-        if dt.is_floating_point:
-            eps = max(eps, torch.finfo(dt).eps)
-
-    return axis, eps
+    field_axis = quad_axis if dtype is None else quad_axis.to(dtype)
+    return field_axis, quad_axis
 
 
-def _uniform_step(axis, eps):
+def _uniform_step(axis):
     """Infer the spacing of an equally spaced, increasing axis.
 
     The spacing is the mean step ``(axis[-1] - axis[0]) / (n - 1)``. Every
     coordinate must be finite and every individual step positive and within
-    the rounding error expected for coordinates of this magnitude with
-    machine epsilon ``eps``. Grids from :class:`solwa.geometry` stay below
+    the rounding error expected for coordinates of this magnitude and dtype.
+    Grids from :class:`solwa.geometry` stay below
     ``eps * max|x|``; the bound allows four times that. If the bound exceeds
     1 % of the step, the precision cannot tell uniform from uneven spacing
     and the axis is rejected.
@@ -62,7 +62,7 @@ def _uniform_step(axis, eps):
     if torch.any(spacing <= 0):
         return None, "uneven"
 
-    tol = 4 * eps * values.abs().max()
+    tol = 4 * torch.finfo(values.dtype).eps * values.abs().max()
     if tol > 0.01 * step.detach():
         return None, "precision"
     if torch.any((spacing - step.detach()).abs() > tol):
@@ -71,7 +71,7 @@ def _uniform_step(axis, eps):
     return step, None
 
 
-def _cell_step(cells, eps, axis_name):
+def _cell_step(cells, axis_name):
     """Return the width of adjacent, equally sized cells from their centers."""
     if cells.ndim != 1:
         raise ValueError(
@@ -83,7 +83,7 @@ def _cell_step(cells, eps, axis_name):
             "cell width can be inferred."
         )
 
-    step, reason = _uniform_step(cells, eps)
+    step, reason = _uniform_step(cells)
     if reason == "nonfinite":
         raise ValueError(f"{axis_name} must contain only finite cell centers.")
     if reason == "precision":
@@ -101,19 +101,29 @@ def _cell_step(cells, eps, axis_name):
     return step
 
 
-def _looks_cell_centered(axis, eps):
+def _looks_cell_centered(axis):
     """Return True if a point axis looks like centers of equally sized cells.
 
-    The check is relative to the axis spacing, so it does not depend on the
-    coordinate scale: the axis must be equally spaced and its points must sit
-    half a step off the multiples of that step, as for ``(i + 0.5) * dx``.
+    The axis must be equally spaced and its points must sit half a step off
+    the multiples of that step, as for ``(i + 0.5) * dx``. The phase
+    ``axis[0] / step`` carries the rounding of the coordinates and of the
+    inferred step, amplified by ``axis[0] / step`` for subsets far from the
+    origin, so the allowed deviation from one half scales with that error.
     """
-    step, reason = _uniform_step(axis, eps)
+    step, reason = _uniform_step(axis)
     if reason is not None:
         return False
 
-    offset = torch.remainder(axis[0].detach() / step.detach(), 1.0)
-    return bool(torch.abs(offset - 0.5) < 1e-3)
+    values = axis.detach()
+    step = step.detach()
+    rounding = torch.finfo(values.dtype).eps * values.abs().max()
+    step_error = 2 * rounding / (values.numel() - 1)
+    phase = values[0] / step
+    phase_error = phase.abs() * step_error / step + rounding / step
+    tol = torch.clamp(1e-3 + 4 * phase_error, max=0.25)
+
+    offset = torch.remainder(phase, 1.0)
+    return bool(torch.abs(offset - 0.5) < tol)
 
 
 def poynting_flux(
@@ -193,9 +203,9 @@ def poynting_flux(
     if has_points:
         if x_points is None or y_points is None:
             raise ValueError("x_points and y_points must be provided together.")
-        x_axis, x_eps = _axis_tensor(x_points, sim)
-        y_axis, y_eps = _axis_tensor(y_points, sim)
-        if _looks_cell_centered(x_axis, x_eps) or _looks_cell_centered(y_axis, y_eps):
+        x_axis, x_quad = _axis_tensors(x_points, sim)
+        y_axis, y_quad = _axis_tensors(y_points, sim)
+        if _looks_cell_centered(x_quad) or _looks_cell_centered(y_quad):
             warnings.warn(
                 "x_points/y_points look like cell centers. Trapezoidal "
                 "integration only spans from the first to the last center and "
@@ -207,17 +217,24 @@ def poynting_flux(
     else:
         if x_cells is None or y_cells is None:
             raise ValueError("x_cells and y_cells must be provided together.")
-        x_axis, x_eps = _axis_tensor(x_cells, sim)
-        y_axis, y_eps = _axis_tensor(y_cells, sim)
+        x_axis, x_quad = _axis_tensors(x_cells, sim)
+        y_axis, y_quad = _axis_tensors(y_cells, sim)
 
-    if x_axis.ndim != 1 or y_axis.ndim != 1:
+    if x_quad.ndim != 1 or y_quad.ndim != 1:
         raise ValueError("Poynting-flux integration axes must be one-dimensional.")
 
     Sz = sim.poynting_xy(layer, x_axis, y_axis, z_prop=z_prop)[2]
 
     if has_cells:
-        dx = _cell_step(x_axis, x_eps, "x_cells")
-        dy = _cell_step(y_axis, y_eps, "y_cells")
+        dx = _cell_step(x_quad, "x_cells")
+        dy = _cell_step(y_quad, "y_cells")
         return Sz.sum() * dx * dy
 
-    return torch.trapezoid(torch.trapezoid(Sz, y_axis, dim=1), x_axis, dim=0)
+    # Integrate with the input precision of the coordinates (promoted with
+    # the field dtype), so a lower-precision simulation cannot shift them.
+    coord_dtype = torch.promote_types(x_quad.dtype, y_quad.dtype)
+    dtype = torch.promote_types(Sz.dtype, coord_dtype)
+    Sz = Sz.to(dtype)
+    return torch.trapezoid(
+        torch.trapezoid(Sz, y_quad.to(dtype), dim=1), x_quad.to(dtype), dim=0
+    )
