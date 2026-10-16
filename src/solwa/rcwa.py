@@ -1720,7 +1720,8 @@ class rcwa:
         x_points, y_points : array-like or torch.Tensor, optional
             Actual x/y sampling coordinates. The flux is integrated between
             these points with the trapezoidal rule. Both axes must be supplied
-            together.
+            together. Passing cell centers here (e.g. ``rcwa_geo.x``) emits a
+            warning; use ``x_cells``/``y_cells`` for those.
         z_prop : float, optional
             z-position at which to evaluate the flux. Default is 0.0.
         x_cells, y_cells : array-like or torch.Tensor, optional

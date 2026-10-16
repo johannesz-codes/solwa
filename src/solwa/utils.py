@@ -1,3 +1,5 @@
+import warnings
+
 import torch
 
 
@@ -37,6 +39,28 @@ def _cell_step(cells, axis_name):
         )
 
     return step
+
+
+def _looks_cell_centered(axis):
+    """Return True if a point axis looks like centers of equally sized cells.
+
+    The check is relative to the axis spacing, so it does not depend on the
+    coordinate scale: the axis must be equally spaced and its points must sit
+    half a step off the multiples of that step, as for ``(i + 0.5) * dx``.
+    """
+    if axis.ndim != 1 or axis.numel() < 2:
+        return False
+
+    axis = axis.detach()
+    spacing = axis[1:] - axis[:-1]
+    step = spacing[0]
+    if step <= 0 or not torch.allclose(
+        spacing, torch.full_like(spacing, step), rtol=1e-3, atol=0.0
+    ):
+        return False
+
+    offset = torch.remainder(axis[0] / step, 1.0)
+    return bool(torch.abs(offset - 0.5) < 1e-3)
 
 
 def poynting_flux(
@@ -92,6 +116,14 @@ def poynting_flux(
     ValueError
         If point and cell coordinates are mixed, an axis pair is incomplete,
         or cell centers are not suitable for inferring a cell width.
+
+    Warns
+    -----
+    UserWarning
+        If ``x_points`` or ``y_points`` look like cell centers, for example
+        ``geometry.x``/``geometry.y``. Trapezoidal integration over cell
+        centers leaves out half a cell at each edge; pass them as
+        ``x_cells``/``y_cells`` to integrate the full cells.
     """
     has_points = x_points is not None or y_points is not None
     has_cells = x_cells is not None or y_cells is not None
@@ -110,6 +142,15 @@ def poynting_flux(
             raise ValueError("x_points and y_points must be provided together.")
         x_axis = _axis_tensor(x_points, sim)
         y_axis = _axis_tensor(y_points, sim)
+        if _looks_cell_centered(x_axis) or _looks_cell_centered(y_axis):
+            warnings.warn(
+                "x_points/y_points look like cell centers. Trapezoidal "
+                "integration only spans from the first to the last center and "
+                "leaves out half a cell at each edge. Pass cell centers as "
+                "x_cells/y_cells to integrate the full cells.",
+                UserWarning,
+                stacklevel=2,
+            )
     else:
         if x_cells is None or y_cells is None:
             raise ValueError("x_cells and y_cells must be provided together.")

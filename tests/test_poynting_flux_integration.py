@@ -1,3 +1,5 @@
+import warnings
+
 import pytest
 import torch
 
@@ -69,13 +71,15 @@ def test_poynting_flux_integrates_actual_points_with_trapezoid():
     x_points = torch.linspace(0.0, 1.0, 101, dtype=torch.float64)
     y_points = torch.linspace(0.0, 1.0, 101, dtype=torch.float64)
 
-    flux = poynting_flux(
-        sim,
-        layer=0,
-        x_points=x_points,
-        y_points=y_points,
-        z_prop=0.0,
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        flux = poynting_flux(
+            sim,
+            layer=0,
+            x_points=x_points,
+            y_points=y_points,
+            z_prop=0.0,
+        )
 
     assert torch.isclose(flux, torch.tensor(1.0, dtype=torch.float64), atol=1e-12)
 
@@ -93,6 +97,35 @@ def test_rcwa_wrapper_forwards_cell_coordinates():
     )
 
     assert torch.isclose(flux, torch.tensor(1.0, dtype=geo.dtype), atol=1e-12)
+
+
+def test_poynting_flux_warns_when_points_look_cell_centered():
+    geo = _geometry()
+    sim = ConstantPoyntingSimulation()
+
+    with pytest.warns(UserWarning, match="x_cells/y_cells"):
+        flux = poynting_flux(sim, layer=0, x_points=geo.x, y_points=geo.y)
+
+    expected = torch.tensor(0.99**2, dtype=geo.dtype)
+    assert torch.isclose(flux, expected, atol=1e-12)
+
+
+def test_poynting_flux_warns_for_subset_of_cell_centers():
+    geo = _geometry()
+    sim = ConstantPoyntingSimulation()
+
+    with pytest.warns(UserWarning, match="x_cells/y_cells"):
+        poynting_flux(sim, layer=0, x_points=geo.x[20:50], y_points=geo.y[30:70])
+
+
+def test_poynting_flux_does_not_warn_for_small_scale_endpoint_points():
+    sim = ConstantPoyntingSimulation()
+    x_points = torch.linspace(0.0, 1e-8, 100, dtype=torch.float64)
+    y_points = torch.linspace(0.0, 1e-8, 100, dtype=torch.float64)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        poynting_flux(sim, layer=0, x_points=x_points, y_points=y_points)
 
 
 def test_poynting_flux_rejects_mixed_point_and_cell_axes():
