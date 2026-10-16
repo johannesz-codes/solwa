@@ -11,6 +11,9 @@ class ConstantPoyntingSimulation:
     _dtype = torch.complex128
     _device = torch.device("cpu")
 
+    def __init__(self, L=(1.0, 1.0)):
+        self.L = L
+
     def poynting_xy(self, layer, x_axis, y_axis, z_prop):
         del layer, z_prop
         shape = (x_axis.numel(), y_axis.numel())
@@ -172,23 +175,32 @@ def test_poynting_flux_rejects_non_finite_cell_centers(x_cells):
         poynting_flux(sim, layer=0, x_cells=x_cells, y_cells=y_cells)
 
 
-def test_poynting_flux_keeps_float64_points_in_complex64_simulation():
-    # Rounding these x coordinates to float32 would merge them and give 0.
+def test_poynting_flux_rejects_points_lost_in_simulation_precision():
+    # Casting these x coordinates to float32 would merge them, so the fields
+    # would be sampled away from the quadrature nodes.
     sim = ConstantPoyntingSimulation32()
     x_points = torch.tensor([1e8, 1e8 + 1.0], dtype=torch.float64)
     y_points = torch.tensor([0.0, 1.0], dtype=torch.float64)
 
-    flux = poynting_flux(sim, layer=0, x_points=x_points, y_points=y_points)
+    with pytest.raises(ValueError, match="precision"):
+        poynting_flux(sim, layer=0, x_points=x_points, y_points=y_points)
+
+
+def test_poynting_flux_accepts_float64_points_in_complex64_simulation():
+    sim = ConstantPoyntingSimulation32()
+    points = torch.linspace(0.0, 1.0, 101, dtype=torch.float64)
+
+    flux = poynting_flux(sim, layer=0, x_points=points, y_points=points)
 
     assert torch.isclose(flux, torch.tensor(1.0, dtype=flux.dtype))
 
 
-def test_poynting_flux_warns_for_float32_cell_subset_far_from_origin():
+def test_poynting_flux_warns_for_float32_full_cell_grid():
     geo = _geometry(n=1000, L=300.0, dtype=torch.float32)
-    sim = ConstantPoyntingSimulation32()
+    sim = ConstantPoyntingSimulation32(L=(300.0, 300.0))
 
     with pytest.warns(UserWarning, match="x_cells/y_cells"):
-        poynting_flux(sim, layer=0, x_points=geo.x[900:910], y_points=geo.y[900:910])
+        poynting_flux(sim, layer=0, x_points=geo.x, y_points=geo.y)
 
 
 def test_poynting_flux_rejects_nonuniform_small_scale_cell_centers():
@@ -211,12 +223,27 @@ def test_poynting_flux_warns_when_points_look_cell_centered():
     assert torch.isclose(flux, expected, atol=1e-12)
 
 
-def test_poynting_flux_warns_for_subset_of_cell_centers():
+def test_poynting_flux_does_not_warn_for_subset_of_cell_centers():
+    # A subset of centers is indistinguishable from an endpoint grid over a
+    # sub-region, so it must not warn.
     geo = _geometry()
     sim = ConstantPoyntingSimulation()
 
-    with pytest.warns(UserWarning, match="x_cells/y_cells"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         poynting_flux(sim, layer=0, x_points=geo.x[20:50], y_points=geo.y[30:70])
+
+
+def test_poynting_flux_does_not_warn_for_symmetric_endpoint_points():
+    # linspace(-L/2, L/2, n) has a half-step phase but is an endpoint grid.
+    sim = ConstantPoyntingSimulation()
+    points = torch.linspace(-0.5, 0.5, 100, dtype=torch.float64)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        flux = poynting_flux(sim, layer=0, x_points=points, y_points=points)
+
+    assert torch.isclose(flux, torch.tensor(1.0, dtype=torch.float64))
 
 
 def test_poynting_flux_does_not_warn_for_small_scale_endpoint_points():
