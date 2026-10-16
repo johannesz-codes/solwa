@@ -20,10 +20,24 @@ jobs:
           python-version: "3.11"
 
       - name: Install package
-        run: pip install ".[dev]" pytest || pip install . pytest
+        run: pip install . pytest
 
       - name: Smoke test – import package
         run: python -c "import solwa; from solwa import rcwa, geometry, materials; print(f'solwa {solwa.__version__}')"
 
       - name: Run tests
-        run: python -m pytest tests/ -v
+        run: python -m pytest tests/ --device=cpu -v
+
+  infrastructure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Test infrastructure failure and cleanup paths without cloud credentials
+        run: python -m unittest discover -s ci/nebius/tests -v
+      - name: Check bootstrap shell syntax
+        run: |
+          bash -n ci/nebius/bootstrap.sh
+          bash -n ci/nebius/install-cli.sh

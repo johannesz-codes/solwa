@@ -1,0 +1,52 @@
+name: GPU cleanup
+
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+  workflow_run:
+    workflows: [GPU CI]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: solwa-nebius-reaper
+  cancel-in-progress: false
+
+jobs:
+  reap:
+    if: >-
+      github.repository == 'johannesz-codes/solwa' &&
+      github.ref == 'refs/heads/main' && vars.NEBIUS_CI_CLEANUP_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: nebius-ci
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install Nebius CLI
+        run: bash ci/nebius/install-cli.sh
+      - name: Clean up a completed or cancelled GPU workflow
+        if: >-
+          github.event_name == 'workflow_run' &&
+          github.event.workflow_run.head_repository.full_name == github.repository
+        env:
+          NEBIUS_CREDENTIALS_JSON: ${{ secrets.NEBIUS_CREDENTIALS_JSON }}
+          GH_RUNNER_TOKEN: ${{ secrets.GH_RUNNER_TOKEN }}
+          NEBIUS_PROJECT_ID: ${{ vars.NEBIUS_PROJECT_ID }}
+          TARGET_RUN_ID: ${{ github.event.workflow_run.id }}
+          TARGET_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          GITHUB_RUN_ID="$TARGET_RUN_ID" GITHUB_RUN_ATTEMPT="$TARGET_RUN_ATTEMPT" \
+            python3 ci/nebius/runner.py cleanup
+      - name: Delete expired SOLWA CI resources only
+        if: ${{ always() }}
+        env:
+          NEBIUS_CREDENTIALS_JSON: ${{ secrets.NEBIUS_CREDENTIALS_JSON }}
+          GH_RUNNER_TOKEN: ${{ secrets.GH_RUNNER_TOKEN }}
+          NEBIUS_PROJECT_ID: ${{ vars.NEBIUS_PROJECT_ID }}
+        run: python3 ci/nebius/runner.py reap

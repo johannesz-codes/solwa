@@ -1,0 +1,135 @@
+name: GPU CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Reviewed commit SHA or ref to test (empty = workflow commit)'
+        required: false
+        type: string
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  # Allows this PR to be tested before merging. Explicit repository opt-in below.
+  push:
+    branches: [work/nebius-gpu-ci]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: solwa-nebius-gpu
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    if: >-
+      github.repository == 'johannesz-codes/solwa' &&
+      (
+        (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+         vars.NEBIUS_CI_CLEANUP_ENABLED == 'true') ||
+        (github.event_name == 'workflow_run' &&
+         github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.event == 'push' &&
+         github.event.workflow_run.head_repository.full_name == github.repository &&
+         vars.NEBIUS_CI_ENABLED == 'true' && vars.NEBIUS_CI_CLEANUP_ENABLED == 'true') ||
+        (github.event_name == 'push' && github.ref == 'refs/heads/work/nebius-gpu-ci' &&
+         vars.NEBIUS_CI_BOOTSTRAP == 'true')
+      )
+    runs-on: ubuntu-latest
+    environment: nebius-ci
+    timeout-minutes: 22
+    outputs:
+      runner_label: ${{ steps.start.outputs.runner_label }}
+      test_sha: ${{ steps.start.outputs.test_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Workflow's own trusted commit, never the requested test ref.
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check configuration before installing or allocating anything
+        env:
+          NEBIUS_CREDENTIALS_JSON: ${{ secrets.NEBIUS_CREDENTIALS_JSON }}
+          GH_RUNNER_TOKEN: ${{ secrets.GH_RUNNER_TOKEN }}
+          NEBIUS_PROJECT_ID: ${{ vars.NEBIUS_PROJECT_ID }}
+          NEBIUS_SUBNET_ID: ${{ vars.NEBIUS_SUBNET_ID }}
+          NEBIUS_PRESET: ${{ vars.NEBIUS_PRESET }}
+        run: python3 ci/nebius/runner.py check
+      - name: Install Nebius CLI
+        run: bash ci/nebius/install-cli.sh
+      - name: Start one GPU runner
+        id: start
+        env:
+          NEBIUS_CREDENTIALS_JSON: ${{ secrets.NEBIUS_CREDENTIALS_JSON }}
+          GH_RUNNER_TOKEN: ${{ secrets.GH_RUNNER_TOKEN }}
+          NEBIUS_PROJECT_ID: ${{ vars.NEBIUS_PROJECT_ID }}
+          NEBIUS_SUBNET_ID: ${{ vars.NEBIUS_SUBNET_ID }}
+          NEBIUS_PLATFORM: ${{ vars.NEBIUS_PLATFORM }}
+          NEBIUS_PRESET: ${{ vars.NEBIUS_PRESET }}
+          NEBIUS_IMAGE_FAMILY: ${{ vars.NEBIUS_IMAGE_FAMILY }}
+          TEST_REF: ${{ inputs.ref || github.event.workflow_run.head_sha || github.sha }}
+        run: python3 ci/nebius/runner.py provision
+
+  test:
+    needs: provision
+    runs-on: [self-hosted, linux, x64, '${{ needs.provision.outputs.runner_label }}']
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Verify CUDA and record the environment
+        run: |
+          nvidia-smi
+          /home/runner/venv/bin/python - <<'PY'
+          import torch
+          print('PyTorch:', torch.__version__, 'CUDA runtime:', torch.version.cuda)
+          assert torch.cuda.is_available(), 'CUDA is required; no CPU fallback'
+          print('GPU:', torch.cuda.get_device_name(0))
+          assert (torch.ones(2, device='cuda') + 1).sum().item() == 4
+          PY
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.provision.outputs.test_sha }}
+          persist-credentials: false
+      - name: Install SOLWA without changing pinned dependencies
+        run: /home/runner/venv/bin/python -m pip install --no-deps --no-build-isolation .
+      - name: Run physics tests on CUDA
+        run: /home/runner/venv/bin/python -m pytest tests/ --device=cuda -v --junitxml=gpu-results.xml
+      - name: Upload test report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-test-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: gpu-results.xml
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Preserve runner diagnostics before VM deletion
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-runner-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /home/runner/actions-runner/_diag/*.log
+          if-no-files-found: warn
+          retention-days: 7
+
+  cleanup:
+    needs: [provision, test]
+    if: ${{ always() && needs.provision.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    environment: nebius-ci
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install Nebius CLI
+        run: bash ci/nebius/install-cli.sh
+      - name: Delete resources for this exact workflow attempt
+        env:
+          NEBIUS_CREDENTIALS_JSON: ${{ secrets.NEBIUS_CREDENTIALS_JSON }}
+          GH_RUNNER_TOKEN: ${{ secrets.GH_RUNNER_TOKEN }}
+          NEBIUS_PROJECT_ID: ${{ vars.NEBIUS_PROJECT_ID }}
+        run: python3 ci/nebius/runner.py cleanup
