@@ -21,8 +21,8 @@ jobs:
           pip install ruff black
 
       - name: Ruff
-        run: ruff check src/solwa --select E4,E7,E9,F
+        run: ruff check src/solwa
 
       - name: Black
-        run: black --check --diff src/solwa
+        run: black --check src/solwa
 
