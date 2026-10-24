@@ -1,0 +1,121 @@
+{
+  "metadata": {
+    "revisions": {
+      "baseline": "ab725611e7a510042c831474e38a0be63e780aa2",
+      "current": "7a4132a0415746b65f714509a4426a2676b2d8ac"
+    },
+    "torch": "2.11.0+xpu",
+    "python": "3.11.16",
+    "platform": "Linux-7.0.0-30-generic-x86_64-with-glibc2.43",
+    "threads": 1,
+    "interop_threads": 1,
+    "dtype": "complex128",
+    "repeats": 3,
+    "device": "cpu",
+    "batch_size": 1,
+    "grad_enabled": false,
+    "measurement": "Linux process ru_maxrss; 1 KiB=1024 bytes",
+    "geometry": "64x64 pixels; 300x340 nm; wavelength 532 nm; rectangular eps=1/4; angles .13/.27 rad; thickness 120+35i nm; shifts 3i/5i",
+    "caveat": "Fresh process per sample. Includes Python, PyTorch, MKL, native workspaces and allocator caches. Peak growth is above the import high-water mark, not tensor-live memory. No GPU VRAM measurement."
+  },
+  "results": [
+    {
+      "order": 5,
+      "layers": 3,
+      "measurements": {
+        "baseline": {
+          "peak_median_mib": 784.953125,
+          "peak_min_mib": 783.6953125,
+          "peak_max_mib": 788.3671875,
+          "peak_growth_median_mib": 126.61328125,
+          "retained_median_mib": 785.328125,
+          "samples": [
+            {
+              "revision": "ab725611e7a510042c831474e38a0be63e780aa2",
+              "source_sha256": {
+                "src/solwa/torch_eig.py": "b7775f11b99882528738d0e4399c378b42f7cc0d08d9553bf8e277baab067329",
+                "src/solwa/rcwa.py": "f2b88a967036cdae66bff57330ffcaf23f74e01f14cb991abe731507e685560e"
+              },
+              "baseline_rss_kib": 674428,
+              "baseline_peak_kib": 674160,
+              "peak_rss_kib": 802504,
+              "retained_rss_kib": 802804,
+              "peak_growth_kib": 128344
+            },
+            {
+              "revision": "ab725611e7a510042c831474e38a0be63e780aa2",
+              "source_sha256": {
+                "src/solwa/torch_eig.py": "b7775f11b99882528738d0e4399c378b42f7cc0d08d9553bf8e277baab067329",
+                "src/solwa/rcwa.py": "f2b88a967036cdae66bff57330ffcaf23f74e01f14cb991abe731507e685560e"
+              },
+              "baseline_rss_kib": 674404,
+              "baseline_peak_kib": 674216,
+              "peak_rss_kib": 807288,
+              "retained_rss_kib": 807388,
+              "peak_growth_kib": 133072
+            },
+            {
+              "revision": "ab725611e7a510042c831474e38a0be63e780aa2",
+              "source_sha256": {
+                "src/solwa/torch_eig.py": "b7775f11b99882528738d0e4399c378b42f7cc0d08d9553bf8e277baab067329",
+                "src/solwa/rcwa.py": "f2b88a967036cdae66bff57330ffcaf23f74e01f14cb991abe731507e685560e"
+              },
+              "baseline_rss_kib": 674396,
+              "baseline_peak_kib": 674140,
+              "peak_rss_kib": 803792,
+              "retained_rss_kib": 804176,
+              "peak_growth_kib": 129652
+            }
+          ]
+        },
+        "current": {
+          "peak_median_mib": 783.78125,
+          "peak_min_mib": 783.60546875,
+          "peak_max_mib": 783.85546875,
+          "peak_growth_median_mib": 125.15234375,
+          "retained_median_mib": 784.0,
+          "samples": [
+            {
+              "revision": "7a4132a0415746b65f714509a4426a2676b2d8ac",
+              "source_sha256": {
+                "src/solwa/torch_eig.py": "b7775f11b99882528738d0e4399c378b42f7cc0d08d9553bf8e277baab067329",
+                "src/solwa/rcwa.py": "e3095ed5a13a2b359726d4f2656124a20e271f96098fe01bddcc13634d111233"
+              },
+              "baseline_rss_kib": 674688,
+              "baseline_peak_kib": 674360,
+              "peak_rss_kib": 802592,
+              "retained_rss_kib": 802840,
+              "peak_growth_kib": 128232
+            },
+            {
+              "revision": "7a4132a0415746b65f714509a4426a2676b2d8ac",
+              "source_sha256": {
+                "src/solwa/torch_eig.py": "b7775f11b99882528738d0e4399c378b42f7cc0d08d9553bf8e277baab067329",
+                "src/solwa/rcwa.py": "e3095ed5a13a2b359726d4f2656124a20e271f96098fe01bddcc13634d111233"
+              },
+              "baseline_rss_kib": 674604,
+              "baseline_peak_kib": 674256,
+              "peak_rss_kib": 802412,
+              "retained_rss_kib": 802760,
+              "peak_growth_kib": 128156
+            },
+            {
+              "revision": "7a4132a0415746b65f714509a4426a2676b2d8ac",
+              "source_sha256": {
+                "src/solwa/torch_eig.py": "b7775f11b99882528738d0e4399c378b42f7cc0d08d9553bf8e277baab067329",
+                "src/solwa/rcwa.py": "e3095ed5a13a2b359726d4f2656124a20e271f96098fe01bddcc13634d111233"
+              },
+              "baseline_rss_kib": 674660,
+              "baseline_peak_kib": 674532,
+              "peak_rss_kib": 802668,
+              "retained_rss_kib": 802816,
+              "peak_growth_kib": 128136
+            }
+          ]
+        }
+      },
+      "peak_delta_mib": -1.171875,
+      "peak_delta_percent": -0.14929235424089815
+    }
+  ]
+}
