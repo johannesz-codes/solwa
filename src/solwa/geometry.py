@@ -19,7 +19,7 @@ class geometry:
         edge_sharpness: float = 1000.0,
         *,
         dtype=torch.float32,
-        device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+        device=None,
     ):
         """
         Initialize geometry configuration for RCWA simulations.
@@ -49,7 +49,11 @@ class geometry:
         self.edge_sharpness = edge_sharpness
 
         self.dtype = dtype
-        self.device = device
+        self.device = (
+            torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            if device is None
+            else device
+        )
 
     def grid(self):
         """

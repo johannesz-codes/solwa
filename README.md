@@ -44,6 +44,36 @@ PyTorch ≥ 2.10 is recommended for improved CUDA performance
 
 <br/>
 
+Mirror-symmetry acceleration
+------------
+
+For a unit cell mirrored about a centered coordinate axis, set
+`symmetry_axis="x"` (reflection `y -> -y`) or `symmetry_axis="y"`
+(reflection `x -> -x`):
+
+```python
+sim = solwa.rcwa(
+    freq=1 / 500,
+    order=[7, 7],
+    L=[400, 400],
+    device=torch.device("cuda"),
+    symmetry_axis="x",
+)
+sim.set_incident_angle(inc_ang=0.0, azi_ang=0.0)
+sim.add_layer(thickness=100, eps=mirror_symmetric_eps)
+sim.solve_global_smatrix()
+```
+
+Solwa validates every patterned layer and splits the tangential-field system
+into even and odd parity blocks. Public S-parameters and field APIs remain in
+the original Fourier basis. Incidence must preserve the mirror: `ky0=0` for
+the x-axis and `kx0=0` for the y-axis. All patterned layers must use the same
+grid size along the reflected coordinate; add a patterned internal layer
+before homogeneous internal layers so that Solwa can infer the sampled-axis
+phase.
+
+<br/>
+
 significant changes from the original torcwa
 ------------
 1. Constants are loaded from standard libraries instead of defining them again in the code.

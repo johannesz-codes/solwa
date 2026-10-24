@@ -132,9 +132,8 @@ class Material:
     """
 
     def __init__(self, nk_file, dl=0.005, *args, **kwargs):
-        f_nk = open(nk_file)
-        data = f_nk.readlines()
-        f_nk.close()
+        with open(nk_file) as f_nk:
+            data = f_nk.readlines()
 
         nk_data = []
         for i in range(len(data)):
