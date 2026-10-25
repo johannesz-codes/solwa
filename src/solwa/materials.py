@@ -16,12 +16,15 @@ class _MaterialFn(torch.autograd.Function):
         """
         Forward pass: interpolate material refractive index at given wavelength.
 
+        Supports both scalar and batched wavelength tensors.
+
         Parameters
         ----------
         ctx : context object
             PyTorch context for saving variables for backward pass.
         wavelength : torch.Tensor
-            Wavelength at which to evaluate the refractive index.
+            Wavelength(s) at which to evaluate the refractive index. Can be a
+            scalar (0-D) tensor or a 1-D batch tensor of shape (B,).
         nk_data : numpy.ndarray
             Array of wavelength, n, k data points.
         n_interp : callable
@@ -34,49 +37,51 @@ class _MaterialFn(torch.autograd.Function):
         Returns
         -------
         torch.Tensor
-            Complex refractive index (n + ik) at the given wavelength.
+            Complex refractive index (n + ik) at the given wavelength(s). Shape
+            matches the input ``wavelength`` shape.
         """
         wavelength_np = wavelength.detach().cpu().numpy()
+        is_scalar = wavelength_np.ndim == 0
+        if is_scalar:
+            wavelength_np = wavelength_np.reshape(1)
 
-        if wavelength_np < nk_data[0, 0]:
-            nk_value = nk_data[0, 1] + 1.0j * nk_data[0, 2]
-        elif wavelength_np > nk_data[-1, 0]:
-            nk_value = nk_data[-1, 1] + 1.0j * nk_data[-1, 2]
-        else:
-            nk_value = n_interp(wavelength_np) + 1.0j * k_interp(wavelength_np)
-
-        if wavelength_np - dl < nk_data[0, 0]:
-            nk_value_m = nk_data[0, 1] + 1.0j * nk_data[0, 2]
-        elif wavelength_np - dl > nk_data[-1, 0]:
-            nk_value_m = nk_data[-1, 1] + 1.0j * nk_data[-1, 2]
-        else:
-            nk_value_m = n_interp(wavelength_np - dl) + 1.0j * k_interp(
-                wavelength_np - dl
+        out_dtype = (
+            torch.complex128
+            if (
+                (wavelength.dtype is torch.float64)
+                or (wavelength.dtype is torch.complex128)
             )
+            else torch.complex64
+        )
 
-        if wavelength_np + dl < nk_data[0, 0]:
-            nk_value_p = nk_data[0, 1] + 1.0j * nk_data[0, 2]
-        elif wavelength_np + dl > nk_data[-1, 0]:
-            nk_value_p = nk_data[-1, 1] + 1.0j * nk_data[-1, 2]
-        else:
-            nk_value_p = n_interp(wavelength_np + dl) + 1.0j * k_interp(
-                wavelength_np + dl
+        lo, hi = nk_data[0, 0], nk_data[-1, 0]
+
+        def _interp(wl):
+            """Vectorised boundary-clamped nk interpolation."""
+            wl_clamp = np.clip(wl, lo, hi)
+            n_arr = n_interp(wl_clamp)
+            k_arr = k_interp(wl_clamp)
+            n_arr = np.where(
+                wl < lo, nk_data[0, 1], np.where(wl > hi, nk_data[-1, 1], n_arr)
             )
+            k_arr = np.where(
+                wl < lo, nk_data[0, 2], np.where(wl > hi, nk_data[-1, 2], k_arr)
+            )
+            return n_arr + 1.0j * k_arr
 
-        ctx.dnk_dl = (nk_value_p - nk_value_m) / (2 * dl)
+        nk_value = _interp(wavelength_np)
+        nk_value_m = _interp(wavelength_np - dl)
+        nk_value_p = _interp(wavelength_np + dl)
 
-        return torch.tensor(
-            nk_value,
-            dtype=(
-                torch.complex128
-                if (
-                    (wavelength.dtype is torch.float64)
-                    or (wavelength.dtype is torch.complex128)
-                )
-                else torch.complex64
-            ),
+        dnk_dl = (nk_value_p - nk_value_m) / (2 * dl)
+        ctx.dnk_dl = torch.tensor(
+            dnk_dl[0] if is_scalar else dnk_dl,
+            dtype=out_dtype,
             device=wavelength.device,
         )
+
+        result = nk_value[0] if is_scalar else nk_value
+        return torch.tensor(result, dtype=out_dtype, device=wavelength.device)
 
     @staticmethod
     def backward(ctx, grad_output):  # type: ignore
