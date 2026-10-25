@@ -329,8 +329,8 @@ class rcwa:
 
         if self._offload_device is not None:
             self.C = [
-                [t.to(self._offload_device) for t in self.C[0]],
-                [t.to(self._offload_device) for t in self.C[1]],
+                [self._to_offload(t) for t in self.C[0]],
+                [self._to_offload(t) for t in self.C[1]],
             ]
 
     # Returns
@@ -1737,22 +1737,32 @@ class rcwa:
             return tensor.to(self._device)
         return tensor
 
+    def _to_offload(self, tensor):
+        """Move *tensor* to the offload device, using pinned memory for CPU offloading from CUDA."""
+        d = self._offload_device
+        if d.type == "cpu" and tensor.is_cuda and not tensor.requires_grad:
+            pinned = torch.empty(
+                tensor.shape, dtype=tensor.dtype, device="cpu", pin_memory=True
+            )
+            pinned.copy_(tensor)
+            return pinned
+        return tensor.to(d, non_blocking=d.type == "cpu" and tensor.is_cuda)
+
     def _offload_layer_data(self):
         """Move the most recently added layer's tensors to the offload device."""
-        d = self._offload_device
-        self.P[-1] = self.P[-1].to(d)
-        self.Q[-1] = self.Q[-1].to(d)
-        self.eps_conv[-1] = self.eps_conv[-1].to(d)
-        self.mu_conv[-1] = self.mu_conv[-1].to(d)
-        self.kz_norm[-1] = self.kz_norm[-1].to(d)
-        self.E_eigvec[-1] = self.E_eigvec[-1].to(d)
-        self.H_eigvec[-1] = self.H_eigvec[-1].to(d)
-        self.Cf[-1] = self.Cf[-1].to(d)
-        self.Cb[-1] = self.Cb[-1].to(d)
-        self.layer_S11[-1] = self.layer_S11[-1].to(d)
-        self.layer_S21[-1] = self.layer_S21[-1].to(d)
-        self.layer_S12[-1] = self.layer_S12[-1].to(d)
-        self.layer_S22[-1] = self.layer_S22[-1].to(d)
+        self.P[-1] = self._to_offload(self.P[-1])
+        self.Q[-1] = self._to_offload(self.Q[-1])
+        self.eps_conv[-1] = self._to_offload(self.eps_conv[-1])
+        self.mu_conv[-1] = self._to_offload(self.mu_conv[-1])
+        self.kz_norm[-1] = self._to_offload(self.kz_norm[-1])
+        self.E_eigvec[-1] = self._to_offload(self.E_eigvec[-1])
+        self.H_eigvec[-1] = self._to_offload(self.H_eigvec[-1])
+        self.Cf[-1] = self._to_offload(self.Cf[-1])
+        self.Cb[-1] = self._to_offload(self.Cb[-1])
+        self.layer_S11[-1] = self._to_offload(self.layer_S11[-1])
+        self.layer_S21[-1] = self._to_offload(self.layer_S21[-1])
+        self.layer_S12[-1] = self._to_offload(self.layer_S12[-1])
+        self.layer_S22[-1] = self._to_offload(self.layer_S22[-1])
 
     def _matching_indices(self, orders):
         orders[orders[:, 0] < -self.order[0], 0] = int(-self.order[0])
