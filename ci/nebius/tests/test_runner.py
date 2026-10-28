@@ -39,7 +39,7 @@ class FakeCloud:
         self.deleted.append((kind, resource_id))
         self.data[kind] = [x for x in self.data[kind] if x['metadata']['id'] != resource_id]
 
-    def call(self, *args, payload=None):
+    def call(self, *args, payload=None, parse=True):
         self.payload = payload
         # Model cloud acceptance followed by a lost response.
         self.data['instance'].append({'metadata': {**payload['metadata'], 'id': 'vm-created'}})

@@ -157,7 +157,7 @@ class Nebius:
             if result.returncode:
                 # Do not echo stderr: it can contain cloud-init/JIT secrets.
                 raise CIError(f"Nebius {' '.join(args[:3])} failed (exit {result.returncode}); check credentials, quota and configuration")
-            # Some commands (e.g. profile create) print plain text despite --format json.
+            # Some commands (profile create, async create) print plain text despite --format json.
             if not parse:
                 return {}
             try:
@@ -179,7 +179,7 @@ class Nebius:
         # Reconcile from a fresh list; tolerate a concurrent reaper deletion only
         # after confirming the resource has disappeared.
         try:
-            self.call("compute", kind, "delete", "--id", resource_id)
+            self.call("compute", kind, "delete", "--id", resource_id, parse=False)
         except CIError:
             if any(r["metadata"]["id"] == resource_id for r in self.resources(kind)):
                 raise
@@ -267,7 +267,7 @@ def provision(cloud, github, ref, run_id, attempt, ready_timeout=900):
                                 github.repo, name, jit, time.time())
         # Async create lets us observe the runner without blocking on a long
         # cloud operation. Resource labels exist even if the response is lost.
-        cloud.call("compute", "instance", "create", "--async", payload=payload)
+        cloud.call("compute", "instance", "create", "--async", payload=payload, parse=False)
         while time.monotonic() < deadline:
             if any(r["name"] == name and r["status"] == "online" for r in github.runners()):
                 print(f"GPU runner ready: {name}; test commit {sha}", flush=True)
