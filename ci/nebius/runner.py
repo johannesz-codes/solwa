@@ -134,9 +134,9 @@ class Nebius:
         credential_path.chmod(0o600)
         self.call("profile", "create", "solwa-ci", "--endpoint", "api.nebius.cloud",
                   "--service-account-file", str(credential_path), "--parent-id", project,
-                  "--skip-auth", profile=False)
+                  "--skip-auth", profile=False, parse=False)
 
-    def call(self, *args, payload=None, profile=True, timeout=180):
+    def call(self, *args, payload=None, profile=True, timeout=180, parse=True):
         command = ["nebius", "--config", str(self.config), "--format", "json",
                    "--no-progress", "--no-check-update", "--no-browser",
                    "--timeout", f"{timeout}s", "--auth-timeout", "60s"]
@@ -157,10 +157,13 @@ class Nebius:
             if result.returncode:
                 # Do not echo stderr: it can contain cloud-init/JIT secrets.
                 raise CIError(f"Nebius {' '.join(args[:3])} failed (exit {result.returncode}); check credentials, quota and configuration")
+            # Some commands (e.g. profile create) print plain text despite --format json.
+            if not parse:
+                return {}
             try:
                 return json.loads(result.stdout) if result.stdout.strip() else {}
             except ValueError:
-                raise CIError("Nebius returned non-JSON output") from None
+                raise CIError(f"Nebius {' '.join(args[:3])} returned non-JSON output") from None
 
     def resources(self, kind):
         page = ""

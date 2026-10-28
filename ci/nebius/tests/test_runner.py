@@ -192,6 +192,15 @@ class LifecycleTests(unittest.TestCase):
             self.assertNotIn('SECRET', str(ctx.exception))
             self.assertEqual(list(Path(temp).iterdir()), [])
 
+    def test_profile_create_tolerates_plain_text_output(self):
+        result = subprocess.CompletedProcess([], 0, 'profile "solwa-ci" configured and activated\n', '')
+        with tempfile.TemporaryDirectory() as temp, \
+                patch.dict(os.environ, {'NEBIUS_CREDENTIALS_JSON': '{"subject-credentials": {}}'}), \
+                patch.object(subprocess, 'run', return_value=result) as run:
+            cloud = r.Nebius(temp, 'project')
+            self.assertIn('profile', run.call_args.args[0])
+            self.assertEqual(cloud.project, 'project')
+
     def test_cloud_list_paginates(self):
         cloud = r.Nebius.__new__(r.Nebius)
         cloud.project = 'project'
