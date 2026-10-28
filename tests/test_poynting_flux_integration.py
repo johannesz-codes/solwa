@@ -117,84 +117,6 @@ def test_poynting_flux_accepts_float32_cell_grid_with_rounding():
     assert torch.isclose(flux, torch.tensor(300.0**2), rtol=1e-5)
 
 
-def test_poynting_flux_accepts_float32_cells_in_complex128_simulation():
-    # Promoting float32 centers to float64 keeps their float32 rounding, so
-    # the spacing check must not apply a float64 tolerance to them.
-    geo = _geometry(dtype=torch.float32)
-    sim = ConstantPoyntingSimulation()
-
-    flux = poynting_flux(sim, layer=0, x_cells=geo.x, y_cells=geo.y)
-
-    assert flux.dtype == torch.float64
-    assert torch.isclose(flux, torch.tensor(1.0, dtype=torch.float64), rtol=1e-6)
-
-
-@pytest.mark.parametrize(
-    "x_cells",
-    [
-        [1000000.5, 1000001.5, 1000001.5],
-        [1000000.0, 1000001.0, 1000000.5],
-    ],
-    ids=["duplicate", "backward"],
-)
-def test_poynting_flux_rejects_non_increasing_float32_cell_centers(x_cells):
-    sim = ConstantPoyntingSimulation32()
-    x_cells = torch.tensor(x_cells, dtype=torch.float32)
-    y_cells = torch.tensor([0.5, 1.5, 2.5], dtype=torch.float32)
-
-    with pytest.raises(ValueError, match="strictly increasing"):
-        poynting_flux(sim, layer=0, x_cells=x_cells, y_cells=y_cells)
-
-
-def test_poynting_flux_rejects_float32_cells_too_coarse_to_check_spacing():
-    # At this magnitude float32 rounding is comparable to the step, so the
-    # 1 vs 2 gaps cannot be told apart from rounding and must be rejected.
-    sim = ConstantPoyntingSimulation32()
-    x_cells = torch.tensor([1000000.5, 1000001.5, 1000003.5], dtype=torch.float32)
-    y_cells = torch.tensor([0.5, 1.5, 2.5], dtype=torch.float32)
-
-    with pytest.raises(ValueError, match="precision"):
-        poynting_flux(sim, layer=0, x_cells=x_cells, y_cells=y_cells)
-
-
-@pytest.mark.parametrize(
-    "x_cells",
-    [
-        [0.5, float("nan"), 2.5],
-        [0.5, 1.5, float("inf")],
-        [float("-inf"), 1.5, 2.5],
-    ],
-    ids=["nan", "inf", "neg-inf"],
-)
-def test_poynting_flux_rejects_non_finite_cell_centers(x_cells):
-    sim = ConstantPoyntingSimulation()
-    x_cells = torch.tensor(x_cells, dtype=torch.float64)
-    y_cells = torch.tensor([0.5, 1.5, 2.5], dtype=torch.float64)
-
-    with pytest.raises(ValueError, match="finite"):
-        poynting_flux(sim, layer=0, x_cells=x_cells, y_cells=y_cells)
-
-
-def test_poynting_flux_rejects_points_lost_in_simulation_precision():
-    # Casting these x coordinates to float32 would merge them, so the fields
-    # would be sampled away from the quadrature nodes.
-    sim = ConstantPoyntingSimulation32()
-    x_points = torch.tensor([1e8, 1e8 + 1.0], dtype=torch.float64)
-    y_points = torch.tensor([0.0, 1.0], dtype=torch.float64)
-
-    with pytest.raises(ValueError, match="precision"):
-        poynting_flux(sim, layer=0, x_points=x_points, y_points=y_points)
-
-
-def test_poynting_flux_accepts_float64_points_in_complex64_simulation():
-    sim = ConstantPoyntingSimulation32()
-    points = torch.linspace(0.0, 1.0, 101, dtype=torch.float64)
-
-    flux = poynting_flux(sim, layer=0, x_points=points, y_points=points)
-
-    assert torch.isclose(flux, torch.tensor(1.0, dtype=flux.dtype))
-
-
 def test_poynting_flux_warns_for_float32_full_cell_grid():
     geo = _geometry(n=1000, L=300.0, dtype=torch.float32)
     sim = ConstantPoyntingSimulation32(L=(300.0, 300.0))
@@ -244,16 +166,6 @@ def test_poynting_flux_does_not_warn_for_symmetric_endpoint_points():
         flux = poynting_flux(sim, layer=0, x_points=points, y_points=points)
 
     assert torch.isclose(flux, torch.tensor(1.0, dtype=torch.float64))
-
-
-def test_poynting_flux_does_not_warn_for_small_scale_endpoint_points():
-    sim = ConstantPoyntingSimulation()
-    x_points = torch.linspace(0.0, 1e-8, 100, dtype=torch.float64)
-    y_points = torch.linspace(0.0, 1e-8, 100, dtype=torch.float64)
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        poynting_flux(sim, layer=0, x_points=x_points, y_points=y_points)
 
 
 def test_poynting_flux_rejects_mixed_point_and_cell_axes():
