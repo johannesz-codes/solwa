@@ -142,6 +142,12 @@ bash -n ci/nebius/install-cli.sh
 python -m pytest tests/ --device=cpu -v
 ```
 
+## Re-running a failed GPU run
+
+Use **Re-run all jobs**, not *Re-run failed jobs*. Each run's VM and its one-job
+runner are deleted by `cleanup`; re-running only `test` waits for that deleted
+runner until GitHub gives up (24 h). A full re-run provisions a fresh VM.
+
 ## Timeouts, cancellation, and recovery
 
 One workflow at a time is allowed; additional runs wait (GitHub may replace an

@@ -242,6 +242,16 @@ class LifecycleTests(unittest.TestCase):
         ])
         self.assertEqual(r.boot_log_lines(raw), ['t1 cloud-init start', 't3 bootstrap failed'])
 
+    def test_privileged_unit_hooks_never_use_job_writable_paths(self):
+        unit = (r.ROOT/'bootstrap.sh').read_text()
+        path = next(line for line in unit.splitlines() if line.startswith('Environment=PATH='))
+        self.assertNotIn('/home/', path)
+        for line in unit.splitlines():
+            if line.startswith('Exec') and '=+' in line:
+                for command in ('journalctl', 'sed'):
+                    if command in line:
+                        self.assertIn('/usr/bin/' + command, line)
+
     def test_existing_vm_prevents_new_allocation(self):
         cloud = FakeCloud([resource('instance')])
         with self.assertRaises(r.CIError):

@@ -69,12 +69,14 @@ Wants=network-online.target
 Type=simple
 User=runner
 WorkingDirectory=/home/runner/actions-runner
-Environment=PATH=/home/runner/venv/bin:/usr/local/bin:/usr/bin:/bin
+# Root-owned directories only: the privileged hook below must not resolve
+# commands from anywhere the job user can write (e.g. /home/runner/venv/bin).
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
 ExecStart=/bin/bash /opt/solwa-ci/start-runner.sh
 Restart=no
 KillMode=control-group
 # If the runner exits (e.g. registration rejected), copy its log to the console.
-ExecStopPost=+/bin/sh -c 'journalctl -u solwa-runner --no-pager -n 40 | sed "s/^/solwa-runner: /" > /dev/console'
+ExecStopPost=+/bin/sh -c 'PATH=/usr/bin:/bin; /usr/bin/journalctl -u solwa-runner --no-pager -n 40 | /usr/bin/sed "s/^/solwa-runner: /" > /dev/console'
 [Install]
 WantedBy=multi-user.target
 UNIT
