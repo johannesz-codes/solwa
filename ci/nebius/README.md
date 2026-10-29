@@ -114,7 +114,7 @@ No persistent IP, SSH key, data volume, or cloud service account is attached.
 
 ## Tests and versions
 
-The GPU environment pins Python package dependencies in `bootstrap.sh`:
+The GPU `test` job installs pinned Python packages (before checking out code):
 PyTorch 2.7.1 / cu128, NumPy 2.2.6, SciPy 1.15.3, pytest 8.3.5. The NVIDIA driver
 comes from the CUDA 13.0 image and can run the older cu128 wheel. CPU CI continues
 to exercise the normal package dependency range separately.

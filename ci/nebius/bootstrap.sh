@@ -33,13 +33,8 @@ archive.unlink()
 PY
 bash /home/runner/actions-runner/bin/installdependencies.sh
 chown -R runner:runner /home/runner/actions-runner
-# Install pinned test dependencies before any checkout of untrusted test code.
-runuser -u runner -- python3 -m venv /home/runner/venv
-runuser -u runner -- /home/runner/venv/bin/pip install --disable-pip-version-check \
-  torch==2.7.1 --index-url https://download.pytorch.org/whl/cu128
-runuser -u runner -- /home/runner/venv/bin/pip install --disable-pip-version-check \
-  numpy==2.2.6 scipy==1.15.3 pytest==8.3.5 setuptools==80.9.0 wheel==0.45.1
-# Register only after dependencies are ready, so the readiness timeout covers boot.
+# Register as early as possible: Python test dependencies are installed by the
+# test job itself, so their progress and timing show up in the GitHub log.
 cat > /opt/solwa-ci/start-runner.sh <<'START'
 #!/usr/bin/env bash
 set -euo pipefail
