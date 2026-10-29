@@ -168,8 +168,10 @@ capacity is not treated as a failure; only the 60-minute readiness timeout is.
 Never send a start while another operation runs: Nebius aborts the running one
 (even the initial create). If the runner is still not online, the error says
 whether the VM never reached `RUNNING` (Nebius side) or ran without the runner
-coming online (bootstrap side), and the VM's boot log is printed in a collapsed
-group in the `provision` log before the VM is deleted. That log is public on
+coming online (bootstrap side), and the end of the VM's console log is printed in a
+collapsed group in the `provision` log before the VM is deleted. The bootstrap
+writes `solwa-bootstrap:` progress lines (and the failing command) there, and
+`solwa-runner:` lines if the runner process exits. That log is public on
 this repository; known secrets are masked.
 
 For manual recovery, use the Nebius console to delete the CI VM (not Linux

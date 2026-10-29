@@ -275,16 +275,35 @@ def operation_error(operation):
     return details[0].get("code") or f"code {status.get('code', '?')}"
 
 
+def boot_log_lines(raw):
+    """Newest-first JSON log entries -> chronological text lines, kernel noise dropped."""
+    lines = []
+    for entry in raw.splitlines():
+        try:
+            item = json.loads(entry)
+        except ValueError:
+            if entry.strip():
+                lines.append(entry.rstrip())
+            continue
+        if (item.get("labels") or {}).get("syslog_facility") == "kern":
+            continue
+        lines.append(f"{item.get('timestamp', '')} {str(item.get('message', '')).rstrip()}")
+    return list(reversed(lines))
+
+
 def print_vm_logs(cloud, vm_id):
-    """Show the VM's console/boot log in the job log (secrets are masked)."""
+    """Show the end of the VM's console log (cloud-init/bootstrap) in the job log.
+
+    Known secrets are masked by the runner."""
     try:
-        logs = cloud.call("compute", "instance", "logs", "--id", vm_id, "--forward",
-                          "--limit", "300", "--since", "1h", parse=False, timeout=60)
+        raw = cloud.call("compute", "instance", "logs", "--id", vm_id,
+                         "--limit", "500", "--since", "2h", parse=False, timeout=60)
     except CIError as exc:
         print(f"::warning::Could not fetch VM logs: {exc}", flush=True)
         return
-    print("::group::VM boot log (last 300 entries)", flush=True)
-    print(logs or "(empty)", flush=True)
+    lines = boot_log_lines(raw or "")
+    print("::group::VM console log (latest non-kernel entries)", flush=True)
+    print("\n".join(lines) or "(empty)", flush=True)
     print("::endgroup::", flush=True)
 
 

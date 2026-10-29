@@ -234,6 +234,14 @@ class LifecycleTests(unittest.TestCase):
         self._provision_with_fake_clock(cloud, github, ready_timeout=600)
         self.assertNotIn(('compute', 'instance', 'start'), cloud.calls)
 
+    def test_boot_log_is_chronological_without_kernel_noise(self):
+        raw = "\n".join([
+            json.dumps({'timestamp': 't3', 'message': 'bootstrap failed\r', 'labels': {}}),
+            json.dumps({'timestamp': 't2', 'message': '[0.1] kvm', 'labels': {'syslog_facility': 'kern'}}),
+            json.dumps({'timestamp': 't1', 'message': 'cloud-init start', 'labels': {}}),
+        ])
+        self.assertEqual(r.boot_log_lines(raw), ['t1 cloud-init start', 't3 bootstrap failed'])
+
     def test_existing_vm_prevents_new_allocation(self):
         cloud = FakeCloud([resource('instance')])
         with self.assertRaises(r.CIError):
