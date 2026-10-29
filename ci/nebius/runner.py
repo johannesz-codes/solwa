@@ -21,7 +21,7 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parent
 MANAGER = "solwa-gpu-ci-v1"
-TTL_SECONDS = 5400
+TTL_SECONDS = 9000
 RUNNER_VERSION = "2.337.0"
 RUNNER_SHA256 = "70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613"
 
@@ -176,6 +176,11 @@ class Nebius:
             if not page:
                 return
 
+    def operations(self, instance_id):
+        response = self.call("compute", "instance", "operation", "list",
+                             "--resource-id", instance_id, "--page-size", "20")
+        return response.get("operations", [])
+
     def delete(self, kind, resource_id):
         # Reconcile from a fresh list; tolerate a concurrent reaper deletion only
         # after confirming the resource has disappeared.
@@ -243,19 +248,31 @@ def preflight(provision=True):
             raise CIError("GPU CI currently requires a 1gpu-* preset")
 
 
-READY_TIMEOUT = 1500
+# Waiting for capacity is not a failure: Nebius may need several start attempts
+# (each ends after ~6 min with NotEnoughResources) before a GPU host is free.
+READY_TIMEOUT = 3600
 # Nebius InstanceState (compute/v1): CREATING, UPDATING, STARTING and STOPPING
 # are in progress and left alone. A VM that failed to start ends up STOPPED or
 # ERROR; only then is start re-sent, as one would in the console.
 FAILED_STATES = {"STOPPED", "ERROR"}
-NUDGE_LIMIT = 3
+# A new start aborts any operation still in flight (even the create itself),
+# so starts are also spaced out as a guard against stale status.
+NUDGE_GAP = 30
 
 
 def vm_state(cloud, name):
     for vm in cloud.resources("instance"):
         if vm.get("metadata", {}).get("name") == name:
-            return vm["metadata"].get("id"), (vm.get("status") or {}).get("state") or "UNKNOWN"
-    return None, "NOT_FOUND"
+            status = vm.get("status") or {}
+            return (vm["metadata"].get("id"), status.get("state") or "UNKNOWN",
+                    bool(status.get("reconciling")))
+    return None, "NOT_FOUND", False
+
+
+def operation_error(operation):
+    status = operation.get("status") or {}
+    details = status.get("details") or [{}]
+    return details[0].get("code") or f"code {status.get('code', '?')}"
 
 
 def print_vm_logs(cloud, vm_id):
@@ -299,33 +316,48 @@ def provision(cloud, github, ref, run_id, attempt, ready_timeout=READY_TIMEOUT,
         # Async create lets us observe the runner without blocking on a long
         # cloud operation. Resource labels exist even if the response is lost.
         cloud.call("compute", "instance", "create", "--async", payload=payload, parse=False)
-        vm_id, state, last_state, nudges, last_nudge = None, "NOT_FOUND", None, 0, start
+        vm_id, state, last_state, nudges, last_nudge = None, "NOT_FOUND", None, 0, None
+        reported, last_error = set(), None
         while clock() < deadline:
             elapsed = int(clock() - start)
             if any(r["name"] == name and r["status"] == "online" for r in github.runners()):
                 print(f"GPU runner ready after {elapsed}s: {name}; test commit {sha}", flush=True)
                 return
-            vm_id, state = vm_state(cloud, name)
+            vm_id, state, reconciling = vm_state(cloud, name)
             if state != last_state:
                 print(f"[{elapsed}s] VM state: {state}", flush=True)
                 last_state = state
-            # At most one start per minute, so a start in flight is not repeated.
-            if (vm_id and state in FAILED_STATES and nudges < NUDGE_LIMIT
-                    and (nudges == 0 or clock() - last_nudge >= 60)):
-                nudges += 1
-                last_nudge = clock()
-                print(f"[{elapsed}s] VM is {state}; sending start ({nudges}/{NUDGE_LIMIT})", flush=True)
+            if (vm_id and state in FAILED_STATES and not reconciling
+                    and (last_nudge is None or clock() - last_nudge >= NUDGE_GAP)):
+                # The state alone is not enough: right after create, and while a
+                # start is still scheduling, the VM can already read STOPPED.
                 try:
-                    cloud.call("compute", "instance", "start", "--id", vm_id, "--async", parse=False)
+                    operations = cloud.operations(vm_id)
                 except CIError as exc:
                     print(f"::warning::{exc}", flush=True)
+                    operations = None
+                if operations is not None and not any(not o.get("finished_at") for o in operations):
+                    for operation in operations:
+                        if operation.get("status") and operation.get("id") not in reported:
+                            reported.add(operation.get("id"))
+                            last_error = operation_error(operation)
+                            print(f"[{elapsed}s] Nebius: {operation.get('description', 'operation')} "
+                                  f"failed: {last_error}", flush=True)
+                    nudges += 1
+                    last_nudge = clock()
+                    print(f"[{elapsed}s] VM is {state}; sending start (attempt {nudges})", flush=True)
+                    try:
+                        cloud.call("compute", "instance", "start", "--id", vm_id, "--async", parse=False)
+                    except CIError as exc:
+                        print(f"::warning::{exc}", flush=True)
             sleep(poll)
         if vm_id:
             print_vm_logs(cloud, vm_id)
         where = ("VM never reached RUNNING" if state != "RUNNING"
                  else "VM was RUNNING but the runner never came online (bootstrap problem)")
         raise CIError(f"GPU runner not ready within {ready_timeout // 60} minutes; "
-                      f"{where}; last VM state {state}, {nudges} start nudges")
+                      f"{where}; last VM state {state}, {nudges} start attempts"
+                      + (f", last Nebius error {last_error}" if last_error else ""))
     except Exception:
         # Outer workflow cleanup is also required for cancellation/SIGKILL.
         try:

@@ -27,16 +27,20 @@ class FakeCloud:
         self.data = {'instance': list(instances), 'disk': list(disks)}
         self.states = list(states)  # VM state reported on each successive list
         self.calls = []
+        self.ops = []  # Nebius operations on the VM, newest first
         self.deleted = []
         self.fail_delete = fail_delete
         self.fail_create = fail_create
         self.payload = None
 
+    def operations(self, instance_id):
+        return list(self.ops)
+
     def resources(self, kind):
         if kind == 'instance' and self.states:
             state = self.states.pop(0) if len(self.states) > 1 else self.states[0]
             for vm in self.data['instance']:
-                vm['status'] = {'state': state}
+                vm['status'] = {'state': state, 'reconciling': getattr(self, 'reconciling', False)}
         return iter(list(self.data[kind]))
 
     def delete(self, kind, resource_id):
@@ -91,7 +95,7 @@ class LifecycleTests(unittest.TestCase):
                                'ubuntu24.04-cuda13.0', REPO, NAME, 'short-lived-jit', 10)
         self.assertNotIn('service_account_id', spec['spec'])
         self.assertEqual(spec['spec']['boot_disk']['managed_disk']['spec']['size_gibibytes'], 80)
-        self.assertEqual(spec['metadata']['labels']['expires-at'], '5410')
+        self.assertEqual(spec['metadata']['labels']['expires-at'], '9010')
         config = json.loads(spec['spec']['cloud_init_user_data'].split('\n', 1)[1])
         self.assertFalse(config['users'][0]['sudo'])
         self.assertNotIn('NEBIUS_CREDENTIALS_JSON', json.dumps(config))
@@ -130,7 +134,7 @@ class LifecycleTests(unittest.TestCase):
         malformed['metadata']['labels']['expires-at'] = 'not-an-integer'
         cloud = FakeCloud([resource('instance'), fresh, malformed,
                            resource('instance', repo='other/repo')])
-        r.cleanup(cloud, FakeGitHub(), now=6000)
+        r.cleanup(cloud, FakeGitHub(), now=10000)
         self.assertEqual(len(cloud.deleted), 1)
         self.assertEqual(len(cloud.data['instance']), 3)
 
@@ -206,10 +210,29 @@ class LifecycleTests(unittest.TestCase):
         self.assertNotIn(('compute', 'instance', 'start'), cloud.calls)
         self.assertIn('never reached RUNNING', error)
 
-    def test_failed_vm_is_nudged_a_limited_number_of_times(self):
-        cloud, github = FakeCloud(states=['STARTING', 'ERROR']), FakeGitHub()
-        self._provision_with_fake_clock(cloud, github, ready_timeout=r.READY_TIMEOUT)
-        self.assertEqual(cloud.calls.count(('compute', 'instance', 'start')), r.NUDGE_LIMIT)
+    def test_failed_vm_is_restarted_until_timeout_and_error_is_logged(self):
+        cloud, github = FakeCloud(states=['STARTING', 'STOPPED']), FakeGitHub()
+        cloud.ops = [{'id': 'op1', 'description': 'Start Instance', 'finished_at': 't',
+                      'status': {'code': 8, 'details': [{'code': 'NotEnoughResources'}]}}]
+        error, out = self._provision_with_fake_clock(cloud, github, ready_timeout=600)
+        starts = cloud.calls.count(('compute', 'instance', 'start'))
+        self.assertGreater(starts, 3)  # no fixed limit
+        self.assertLessEqual(starts, 600 // r.NUDGE_GAP)
+        self.assertEqual(out.count('failed: NotEnoughResources'), 1)
+        self.assertIn('last Nebius error NotEnoughResources', error)
+
+    def test_no_start_while_an_operation_is_running(self):
+        # Right after create the VM reads STOPPED while the create still runs.
+        cloud, github = FakeCloud(states=['STOPPED']), FakeGitHub()
+        cloud.ops = [{'id': 'create', 'description': 'Create Instance'}]
+        self._provision_with_fake_clock(cloud, github, ready_timeout=600)
+        self.assertNotIn(('compute', 'instance', 'start'), cloud.calls)
+
+    def test_no_start_while_reconciling(self):
+        cloud, github = FakeCloud(states=['STOPPED']), FakeGitHub()
+        cloud.reconciling = True
+        self._provision_with_fake_clock(cloud, github, ready_timeout=600)
+        self.assertNotIn(('compute', 'instance', 'start'), cloud.calls)
 
     def test_existing_vm_prevents_new_allocation(self):
         cloud = FakeCloud([resource('instance')])
@@ -220,7 +243,7 @@ class LifecycleTests(unittest.TestCase):
     def test_orphan_runner_reaped_without_vm(self):
         github = FakeGitHub()
         github.entries = [{'name': NAME, 'id': 123, 'busy': False}]
-        r.cleanup(FakeCloud(), github, now=6000)
+        r.cleanup(FakeCloud(), github, now=10000)
         self.assertEqual(github.deleted, ['actions/runners/123'])
 
     def test_preflight_aggregates_missing_configuration(self):

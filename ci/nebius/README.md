@@ -57,7 +57,7 @@ and single-GPU preset override below. GPU quota and actual capacity must exist.
 8. Once this workflow is on `main`, open **Actions → GPU CI → Run workflow**.
    Leave `ref` empty to test the workflow commit, or enter a reviewed full commit
    SHA. Expect the stages `provision`, `test`, `cleanup`. The first boot downloads
-   dependencies and may take several minutes; readiness is limited to 25 minutes.
+   dependencies and may take several minutes; readiness (including waiting for GPU capacity) is limited to 60 minutes.
 9. After the first successful run, set **repository variable**
    `NEBIUS_CI_ENABLED=true` to run GPU tests after the CPU tests on every
    **push to main**.
@@ -144,7 +144,7 @@ One workflow at a time is allowed; additional runs wait (GitHub may replace an
 older pending run). Provisioning also refuses to create another VM while an
 owned CI VM exists. No automatic capacity retry can allocate additional GPUs.
 
-Resources are labeled with repository identity, run ID/attempt, and a **90-minute
+Resources are labeled with repository identity, run ID/attempt, and a **150-minute
 expiry**. Normal cleanup runs even after test/provision failures. A separate
 workflow handles completed/cancelled GPU workflows, and scans expired resources
 four times per hour. It also removes orphan runner registrations and boot disks.
@@ -156,13 +156,17 @@ mechanism, not a guaranteed billing cap. Monitor cleanup failures and configure
 Nebius budget alerts. Job execution timeouts do not bound GitHub queue time.
 
 While waiting for the runner, `provision` logs every VM state change with the
-elapsed time. `CREATING`/`STARTING` are left alone however long they take; a VM
-that failed to start (`STOPPED` or `ERROR`) gets up to three `start` requests,
-since Nebius VMs sometimes need a nudge. If the runner is not online after 25 minutes, the error says whether the
-VM never reached `RUNNING` (Nebius side) or ran without the runner coming online
-(bootstrap side), and the VM's boot log is printed in a collapsed group in the
-`provision` log before the VM is deleted. That log is public on this repository;
-known secrets are masked.
+elapsed time. `CREATING`/`STARTING` are left alone however long they take. When
+the VM is `STOPPED` or `ERROR` and no Nebius operation is still running on it,
+the failed operation's error (for example `NotEnoughResources`, i.e. no free GPU
+host) is logged and `start` is sent again, without a fixed limit. Running out of
+capacity is not treated as a failure; only the 60-minute readiness timeout is.
+Never send a start while another operation runs: Nebius aborts the running one
+(even the initial create). If the runner is still not online, the error says
+whether the VM never reached `RUNNING` (Nebius side) or ran without the runner
+coming online (bootstrap side), and the VM's boot log is printed in a collapsed
+group in the `provision` log before the VM is deleted. That log is public on
+this repository; known secrets are masked.
 
 For manual recovery, use the Nebius console to delete the CI VM (not Linux
 `shutdown`) and check its managed disk, or use the trusted script locally with
