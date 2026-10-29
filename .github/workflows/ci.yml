@@ -30,20 +30,6 @@ jobs:
       - name: Run tests
         run: python -m pytest tests/ --device=cpu -v
 
-  infrastructure:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Test infrastructure failure and cleanup paths without cloud credentials
-        run: python -m unittest discover -s ci/nebius/tests -v
-      - name: Check bootstrap shell syntax
-        run: |
-          bash -n ci/nebius/bootstrap.sh
-          bash -n ci/nebius/install-cli.sh
-
   gpu:
     needs: [test]
     # Expensive: main pushes (when enabled) and same-repo PRs labelled gpu-ci only.

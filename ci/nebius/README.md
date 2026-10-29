@@ -129,7 +129,10 @@ fails at session startup if CUDA is absent or a simple GPU kernel fails. The sam
 physics tests use the selected device. Reports and runner diagnostics are uploaded
 before teardown; infrastructure cleanup failure is a separate failing job.
 
-Infrastructure tests use only Python's standard library and fake cloud clients:
+Infrastructure tests use only Python's standard library and fake cloud clients.
+They run in the **GPU infrastructure** workflow only when `ci/nebius/` or the CI
+workflows change, and as the first step of every `provision` job, so no VM is
+created with a broken script. Locally:
 
 ```sh
 python -m unittest discover -s ci/nebius/tests -v

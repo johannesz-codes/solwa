@@ -38,6 +38,8 @@ jobs:
           # Workflow's own trusted commit, never the requested test ref.
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Test the infrastructure script before allocating anything
+        run: python3 -m unittest discover -s ci/nebius/tests
       - name: Check configuration before installing or allocating anything
         env:
           NEBIUS_CREDENTIALS_JSON: ${{ secrets.NEBIUS_CREDENTIALS_JSON }}
