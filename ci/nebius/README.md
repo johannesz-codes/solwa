@@ -57,7 +57,7 @@ and single-GPU preset override below. GPU quota and actual capacity must exist.
 8. Once this workflow is on `main`, open **Actions → GPU CI → Run workflow**.
    Leave `ref` empty to test the workflow commit, or enter a reviewed full commit
    SHA. Expect the stages `provision`, `test`, `cleanup`. The first boot downloads
-   dependencies and may take several minutes; readiness is limited to 15 minutes.
+   dependencies and may take several minutes; readiness is limited to 25 minutes.
 9. After the first successful run, set **repository variable**
    `NEBIUS_CI_ENABLED=true` to run GPU tests after the CPU tests on every
    **push to main**.
@@ -155,10 +155,14 @@ delayed, and expired credentials/outages can prevent cleanup. This is a recovery
 mechanism, not a guaranteed billing cap. Monitor cleanup failures and configure
 Nebius budget alerts. Job execution timeouts do not bound GitHub queue time.
 
-If a runner never reaches readiness, inspect the VM serial/cloud-init logs in
-Nebius while provisioning is still waiting. Bootstrap failures occur before
-GitHub can upload runner diagnostics; these diagnostics are currently best-effort.
-The VM will still be deleted on timeout, so capture needed logs before then.
+While waiting for the runner, `provision` logs every VM state change with the
+elapsed time. A VM that is `STOPPED`, or not `RUNNING` after 6 minutes, gets up
+to three `start` requests (every 3 minutes), since Nebius VMs sometimes need a
+nudge. If the runner is not online after 25 minutes, the error says whether the
+VM never reached `RUNNING` (Nebius side) or ran without the runner coming online
+(bootstrap side), and the VM's boot log is printed in a collapsed group in the
+`provision` log before the VM is deleted. That log is public on this repository;
+known secrets are masked.
 
 For manual recovery, use the Nebius console to delete the CI VM (not Linux
 `shutdown`) and check its managed disk, or use the trusted script locally with

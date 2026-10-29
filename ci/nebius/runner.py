@@ -157,9 +157,10 @@ class Nebius:
             if result.returncode:
                 # Do not echo stderr: it can contain cloud-init/JIT secrets.
                 raise CIError(f"Nebius {' '.join(args[:3])} failed (exit {result.returncode}); check credentials, quota and configuration")
-            # Some commands (profile create, async create) print plain text despite --format json.
+            # Some commands (profile create, async create, logs) print plain text
+            # despite --format json; return their raw output instead.
             if not parse:
-                return {}
+                return result.stdout
             try:
                 return json.loads(result.stdout) if result.stdout.strip() else {}
             except ValueError:
@@ -242,7 +243,35 @@ def preflight(provision=True):
             raise CIError("GPU CI currently requires a 1gpu-* preset")
 
 
-def provision(cloud, github, ref, run_id, attempt, ready_timeout=900):
+READY_TIMEOUT = 1500
+# Nebius VMs sometimes sit in STARTING or end up STOPPED; re-issue start then.
+NUDGE_AFTER = 360
+NUDGE_EVERY = 180
+NUDGE_LIMIT = 3
+
+
+def vm_state(cloud, name):
+    for vm in cloud.resources("instance"):
+        if vm.get("metadata", {}).get("name") == name:
+            return vm["metadata"].get("id"), (vm.get("status") or {}).get("state") or "UNKNOWN"
+    return None, "NOT_FOUND"
+
+
+def print_vm_logs(cloud, vm_id):
+    """Show the VM's console/boot log in the job log (secrets are masked)."""
+    try:
+        logs = cloud.call("compute", "instance", "logs", "--id", vm_id, "--forward",
+                          "--limit", "300", "--since", "1h", parse=False, timeout=60)
+    except CIError as exc:
+        print(f"::warning::Could not fetch VM logs: {exc}", flush=True)
+        return
+    print("::group::VM boot log (last 300 entries)", flush=True)
+    print(logs or "(empty)", flush=True)
+    print("::endgroup::", flush=True)
+
+
+def provision(cloud, github, ref, run_id, attempt, ready_timeout=READY_TIMEOUT,
+              poll=10, clock=time.monotonic, sleep=time.sleep):
     name = run_name(github.repo, run_id, attempt)
     sha = github.resolve(ref)
     # Reconcile before acquiring new capacity. A stale or failed earlier run
@@ -258,7 +287,8 @@ def provision(cloud, github, ref, run_id, attempt, ready_timeout=900):
     mask(jit)
     output("runner_label", name)
     output("test_sha", sha)
-    deadline = time.monotonic() + ready_timeout
+    start = clock()
+    deadline = start + ready_timeout
     try:
         payload = instance_spec(cloud.project, required("NEBIUS_SUBNET_ID"),
                                 os.environ.get("NEBIUS_PLATFORM") or "gpu-l40s-a",
@@ -268,12 +298,33 @@ def provision(cloud, github, ref, run_id, attempt, ready_timeout=900):
         # Async create lets us observe the runner without blocking on a long
         # cloud operation. Resource labels exist even if the response is lost.
         cloud.call("compute", "instance", "create", "--async", payload=payload, parse=False)
-        while time.monotonic() < deadline:
+        vm_id, state, last_state, nudges, last_nudge = None, "NOT_FOUND", None, 0, start
+        while clock() < deadline:
+            elapsed = int(clock() - start)
             if any(r["name"] == name and r["status"] == "online" for r in github.runners()):
-                print(f"GPU runner ready: {name}; test commit {sha}", flush=True)
+                print(f"GPU runner ready after {elapsed}s: {name}; test commit {sha}", flush=True)
                 return
-            time.sleep(10)
-        raise CIError("GPU runner did not become ready within 15 minutes")
+            vm_id, state = vm_state(cloud, name)
+            if state != last_state:
+                print(f"[{elapsed}s] VM state: {state}", flush=True)
+                last_state = state
+            stuck = state == "STOPPED" or (state != "RUNNING" and elapsed >= NUDGE_AFTER)
+            if (vm_id and stuck and nudges < NUDGE_LIMIT
+                    and clock() - last_nudge >= (0 if state == "STOPPED" else NUDGE_EVERY)):
+                nudges += 1
+                last_nudge = clock()
+                print(f"[{elapsed}s] VM is {state}; sending start ({nudges}/{NUDGE_LIMIT})", flush=True)
+                try:
+                    cloud.call("compute", "instance", "start", "--id", vm_id, "--async", parse=False)
+                except CIError as exc:
+                    print(f"::warning::{exc}", flush=True)
+            sleep(poll)
+        if vm_id:
+            print_vm_logs(cloud, vm_id)
+        where = ("VM never reached RUNNING" if state != "RUNNING"
+                 else "VM was RUNNING but the runner never came online (bootstrap problem)")
+        raise CIError(f"GPU runner not ready within {ready_timeout // 60} minutes; "
+                      f"{where}; last VM state {state}, {nudges} start nudges")
     except Exception:
         # Outer workflow cleanup is also required for cancellation/SIGKILL.
         try:

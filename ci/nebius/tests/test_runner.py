@@ -23,14 +23,20 @@ def resource(kind, name=NAME, repo=REPO, now=0):
 class FakeCloud:
     project = 'project-test'
 
-    def __init__(self, instances=(), disks=(), fail_delete=False, fail_create=False):
+    def __init__(self, instances=(), disks=(), fail_delete=False, fail_create=False, states=()):
         self.data = {'instance': list(instances), 'disk': list(disks)}
+        self.states = list(states)  # VM state reported on each successive list
+        self.calls = []
         self.deleted = []
         self.fail_delete = fail_delete
         self.fail_create = fail_create
         self.payload = None
 
     def resources(self, kind):
+        if kind == 'instance' and self.states:
+            state = self.states.pop(0) if len(self.states) > 1 else self.states[0]
+            for vm in self.data['instance']:
+                vm['status'] = {'state': state}
         return iter(list(self.data[kind]))
 
     def delete(self, kind, resource_id):
@@ -39,7 +45,10 @@ class FakeCloud:
         self.deleted.append((kind, resource_id))
         self.data[kind] = [x for x in self.data[kind] if x['metadata']['id'] != resource_id]
 
-    def call(self, *args, payload=None, parse=True):
+    def call(self, *args, payload=None, parse=True, timeout=180):
+        self.calls.append(args[:3])
+        if args[:3] != ('compute', 'instance', 'create'):
+            return 'console log line' if 'logs' in args else ''
         self.payload = payload
         # Model cloud acceptance followed by a lost response.
         self.data['instance'].append({'metadata': {**payload['metadata'], 'id': 'vm-created'}})
@@ -162,6 +171,40 @@ class LifecycleTests(unittest.TestCase):
             r.provision(cloud, github, 'main', 123, 1, ready_timeout=0)
         self.assertFalse(cloud.data['instance'])
         self.assertTrue(github.deleted)
+
+    def _provision_with_fake_clock(self, cloud, github, ready_timeout):
+        now = [0.0]
+
+        def sleep(seconds):
+            now[0] += seconds
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {
+            'GITHUB_OUTPUT': str(Path(temp)/'out'), 'NEBIUS_SUBNET_ID': 'subnet'
+        }), contextlib.redirect_stdout(out), self.assertRaises(r.CIError) as ctx:
+            r.provision(cloud, github, 'main', 123, 1, ready_timeout=ready_timeout,
+                        poll=10, clock=lambda: now[0], sleep=sleep)
+        return str(ctx.exception), out.getvalue()
+
+    def test_stopped_vm_is_nudged_and_timeout_reports_state_and_logs(self):
+        cloud, github = FakeCloud(states=['STARTING', 'STOPPED']), FakeGitHub()
+        error, out = self._provision_with_fake_clock(cloud, github, ready_timeout=60)
+        self.assertIn(('compute', 'instance', 'start'), cloud.calls)
+        self.assertIn('VM state: STOPPED', out)
+        self.assertIn('console log line', out)
+        self.assertIn('never reached RUNNING', error)
+        self.assertFalse(cloud.data['instance'])
+
+    def test_running_vm_without_runner_points_at_bootstrap(self):
+        cloud, github = FakeCloud(states=['RUNNING']), FakeGitHub()
+        error, out = self._provision_with_fake_clock(cloud, github, ready_timeout=600)
+        self.assertNotIn(('compute', 'instance', 'start'), cloud.calls)
+        self.assertIn('bootstrap problem', error)
+
+    def test_slow_start_is_nudged_a_limited_number_of_times(self):
+        cloud, github = FakeCloud(states=['STARTING']), FakeGitHub()
+        self._provision_with_fake_clock(cloud, github, ready_timeout=r.READY_TIMEOUT)
+        nudges = cloud.calls.count(('compute', 'instance', 'start'))
+        self.assertEqual(nudges, r.NUDGE_LIMIT)
 
     def test_existing_vm_prevents_new_allocation(self):
         cloud = FakeCloud([resource('instance')])

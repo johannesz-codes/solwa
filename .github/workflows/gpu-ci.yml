@@ -28,7 +28,7 @@ jobs:
       (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     environment: nebius-ci
-    timeout-minutes: 22
+    timeout-minutes: 32
     outputs:
       runner_label: ${{ steps.start.outputs.runner_label }}
       test_sha: ${{ steps.start.outputs.test_sha }}
