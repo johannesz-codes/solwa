@@ -1,0 +1,34 @@
+name: GPU infrastructure
+
+# Cloud-free tests of the Nebius GPU CI scripts; only when they change.
+# provision runs the same tests before creating any VM.
+on:
+  pull_request:
+    paths:
+      - 'ci/nebius/**'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/gpu-*.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'ci/nebius/**'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/gpu-*.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  infrastructure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Test infrastructure failure and cleanup paths without cloud credentials
+        run: python -m unittest discover -s ci/nebius/tests -v
+      - name: Check bootstrap shell syntax
+        run: |
+          bash -n ci/nebius/bootstrap.sh
+          bash -n ci/nebius/install-cli.sh

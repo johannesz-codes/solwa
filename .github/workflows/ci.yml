@@ -2,6 +2,8 @@ name: CI
 
 on:
   pull_request:
+    # labeled: adding gpu-ci to a PR starts the GPU tests without a new push.
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main]
 
@@ -20,10 +22,28 @@ jobs:
           python-version: "3.11"
 
       - name: Install package
-        run: pip install ".[dev]" pytest || pip install . pytest
+        run: pip install . pytest
 
       - name: Smoke test – import package
         run: python -c "import solwa; from solwa import rcwa, geometry, materials; print(f'solwa {solwa.__version__}')"
 
       - name: Run tests
-        run: python -m pytest tests/ -v
+        run: python -m pytest tests/ --device=cpu -v
+
+  gpu:
+    needs: [test]
+    # Expensive: main pushes (when enabled) and same-repo PRs labelled gpu-ci only.
+    if: >-
+      github.repository == 'johannesz-codes/solwa' &&
+      vars.NEBIUS_CI_CLEANUP_ENABLED == 'true' &&
+      (
+        (github.event_name == 'push' && vars.NEBIUS_CI_ENABLED == 'true') ||
+        (github.event_name == 'pull_request' &&
+         github.event.pull_request.head.repo.full_name == github.repository &&
+         contains(github.event.pull_request.labels.*.name, 'gpu-ci'))
+      )
+    concurrency:
+      group: solwa-nebius-gpu
+      cancel-in-progress: false
+    uses: ./.github/workflows/gpu-ci.yml
+    secrets: inherit
