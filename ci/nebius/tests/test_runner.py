@@ -97,7 +97,7 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(spec['spec']['boot_disk']['managed_disk']['spec']['size_gibibytes'], 80)
         self.assertEqual(spec['metadata']['labels']['expires-at'], '9010')
         config = json.loads(spec['spec']['cloud_init_user_data'].split('\n', 1)[1])
-        self.assertFalse(config['users'][0]['sudo'])
+        self.assertIsNone(config['users'][0]['sudo'])  # no sudo; false is deprecated
         self.assertNotIn('NEBIUS_CREDENTIALS_JSON', json.dumps(config))
         self.assertNotIn('GH_RUNNER_TOKEN', json.dumps(config))
 

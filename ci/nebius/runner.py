@@ -198,7 +198,7 @@ def cloud_init(repo, name, jit):
     # cloud-init accepts JSON as YAML. No string interpolation into shell code.
     config = {
         "users": [{"name": "runner", "shell": "/bin/bash", "lock_passwd": True,
-                   "sudo": False}],
+                   "sudo": None}],
         "ssh_pwauth": False,
         "write_files": [
             {"path": "/opt/solwa-ci/bootstrap.sh", "permissions": "0700", "content": script},

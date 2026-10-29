@@ -5,9 +5,19 @@ export DEBIAN_FRONTEND=noninteractive
 # Progress markers on the serial console, which provision prints on timeout.
 step() { echo "solwa-bootstrap: $*" | tee /dev/console >/dev/null || true; }
 trap 'step "FAILED (exit $?) at line $LINENO: $BASH_COMMAND"' ERR
+retry() {  # retry N CMD...: transient mirror and network errors
+  local attempts=$1 n=1; shift
+  until "$@"; do
+    if (( n >= attempts )); then return 1; fi
+    step "retrying ($n/$attempts failed): $*"; n=$((n + 1)); sleep 15
+  done
+}
 step "installing system packages"
-apt-get update -qq
-apt-get install -y --no-install-recommends ca-certificates curl git python3-venv libicu74 iptables
+# The image also lists NVIDIA/Docker apt repos we do not need; a mirror sync on
+# one of them makes 'apt-get update' fail although the Ubuntu indexes are fine.
+retry 3 apt-get update -qq || step "WARNING: apt-get update had errors; continuing"
+retry 3 apt-get install -y --no-install-recommends \
+  ca-certificates curl git python3-venv libicu74 iptables
 # No inbound services or SSH keys are needed. Preserve outbound HTTPS and DNS.
 iptables -I INPUT 1 -i lo -j ACCEPT
 iptables -I INPUT 2 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
@@ -38,7 +48,7 @@ subprocess.run(['tar','xzf',str(archive),'-C',str(runner_dir)],check=True)
 archive.unlink()
 PY
 step "installing runner dependencies"
-bash /home/runner/actions-runner/bin/installdependencies.sh
+retry 3 bash /home/runner/actions-runner/bin/installdependencies.sh
 chown -R runner:runner /home/runner/actions-runner
 # Register as early as possible: Python test dependencies are installed by the
 # test job itself, so their progress and timing show up in the GitHub log.
