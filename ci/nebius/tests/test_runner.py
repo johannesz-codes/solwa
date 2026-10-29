@@ -200,11 +200,16 @@ class LifecycleTests(unittest.TestCase):
         self.assertNotIn(('compute', 'instance', 'start'), cloud.calls)
         self.assertIn('bootstrap problem', error)
 
-    def test_slow_start_is_nudged_a_limited_number_of_times(self):
-        cloud, github = FakeCloud(states=['STARTING']), FakeGitHub()
+    def test_slow_start_is_left_alone(self):
+        cloud, github = FakeCloud(states=['CREATING', 'STARTING']), FakeGitHub()
+        error, out = self._provision_with_fake_clock(cloud, github, ready_timeout=r.READY_TIMEOUT)
+        self.assertNotIn(('compute', 'instance', 'start'), cloud.calls)
+        self.assertIn('never reached RUNNING', error)
+
+    def test_failed_vm_is_nudged_a_limited_number_of_times(self):
+        cloud, github = FakeCloud(states=['STARTING', 'ERROR']), FakeGitHub()
         self._provision_with_fake_clock(cloud, github, ready_timeout=r.READY_TIMEOUT)
-        nudges = cloud.calls.count(('compute', 'instance', 'start'))
-        self.assertEqual(nudges, r.NUDGE_LIMIT)
+        self.assertEqual(cloud.calls.count(('compute', 'instance', 'start')), r.NUDGE_LIMIT)
 
     def test_existing_vm_prevents_new_allocation(self):
         cloud = FakeCloud([resource('instance')])

@@ -156,9 +156,9 @@ mechanism, not a guaranteed billing cap. Monitor cleanup failures and configure
 Nebius budget alerts. Job execution timeouts do not bound GitHub queue time.
 
 While waiting for the runner, `provision` logs every VM state change with the
-elapsed time. A VM that is `STOPPED`, or not `RUNNING` after 6 minutes, gets up
-to three `start` requests (every 3 minutes), since Nebius VMs sometimes need a
-nudge. If the runner is not online after 25 minutes, the error says whether the
+elapsed time. `CREATING`/`STARTING` are left alone however long they take; a VM
+that failed to start (`STOPPED` or `ERROR`) gets up to three `start` requests,
+since Nebius VMs sometimes need a nudge. If the runner is not online after 25 minutes, the error says whether the
 VM never reached `RUNNING` (Nebius side) or ran without the runner coming online
 (bootstrap side), and the VM's boot log is printed in a collapsed group in the
 `provision` log before the VM is deleted. That log is public on this repository;

@@ -244,9 +244,10 @@ def preflight(provision=True):
 
 
 READY_TIMEOUT = 1500
-# Nebius VMs sometimes sit in STARTING or end up STOPPED; re-issue start then.
-NUDGE_AFTER = 360
-NUDGE_EVERY = 180
+# Nebius InstanceState (compute/v1): CREATING, UPDATING, STARTING and STOPPING
+# are in progress and left alone. A VM that failed to start ends up STOPPED or
+# ERROR; only then is start re-sent, as one would in the console.
+FAILED_STATES = {"STOPPED", "ERROR"}
 NUDGE_LIMIT = 3
 
 
@@ -308,9 +309,9 @@ def provision(cloud, github, ref, run_id, attempt, ready_timeout=READY_TIMEOUT,
             if state != last_state:
                 print(f"[{elapsed}s] VM state: {state}", flush=True)
                 last_state = state
-            stuck = state == "STOPPED" or (state != "RUNNING" and elapsed >= NUDGE_AFTER)
-            if (vm_id and stuck and nudges < NUDGE_LIMIT
-                    and clock() - last_nudge >= (0 if state == "STOPPED" else NUDGE_EVERY)):
+            # At most one start per minute, so a start in flight is not repeated.
+            if (vm_id and state in FAILED_STATES and nudges < NUDGE_LIMIT
+                    and (nudges == 0 or clock() - last_nudge >= 60)):
                 nudges += 1
                 last_nudge = clock()
                 print(f"[{elapsed}s] VM is {state}; sending start ({nudges}/{NUDGE_LIMIT})", flush=True)
