@@ -31,9 +31,10 @@ and single-GPU preset override below. GPU quota and actual capacity must exist.
    Administration is required by GitHub's JIT runner API; Actions read is used
    to reconcile abandoned runner registrations. The workflow's `GITHUB_TOKEN`
    cannot register runners. Set an expiration and rotate the token before expiry.
-4. In SOLWA **Settings → Environments**, create **`nebius-ci`**. Under deployment
-   branches, select only **`main`**. Required reviewers are optional; unattended
-   cleanup needs to run without waiting for manual approval.
+4. In SOLWA **Settings → Environments**, create **`nebius-ci`**. Leave deployment
+   branches unrestricted: labelled PR runs deploy from `refs/pull/<n>/merge`, so a
+   `main`-only rule would block them. Fork PRs never run GPU jobs. Do not add
+   required reviewers; unattended cleanup must run without manual approval.
 5. Add these **environment secrets**:
 
    | Name | Value |
@@ -58,8 +59,16 @@ and single-GPU preset override below. GPU quota and actual capacity must exist.
    SHA. Expect the stages `provision`, `test`, `cleanup`. The first boot downloads
    dependencies and may take several minutes; readiness is limited to 15 minutes.
 9. After the first successful run, set **repository variable**
-   `NEBIUS_CI_ENABLED=true` to run GPU tests after successful **push-to-main CPU
-   CI**. PR and fork events never automatically receive infrastructure secrets.
+   `NEBIUS_CI_ENABLED=true` to run GPU tests after the CPU tests on every
+   **push to main**.
+
+## Running GPU tests on a pull request
+
+GPU tests are opt-in per PR. Add the label **`gpu-ci`** to a PR from this
+repository: CI reruns, and the `gpu` job runs after the CPU `test` job passes.
+Every later push to the labelled PR runs it again; remove the label to stop.
+Without the label the `gpu` job is skipped. It is not a required check. PRs from
+forks never run GPU jobs and never receive infrastructure secrets.
 
 You may set the secrets from files using GitHub CLI, without pasting keys into
 shell command arguments:
@@ -72,28 +81,6 @@ gh secret set GH_RUNNER_TOKEN --repo johannesz-codes/solwa --env nebius-ci
 
 The PAT can later be replaced with a short-lived GitHub App installation token
 passed as `GH_RUNNER_TOKEN`; token minting is not part of this initial version.
-
-### Testing this PR before merge
-
-GitHub only enables new manual/scheduled workflows once they exist on the default
-branch. This PR therefore includes a temporary opt-in push trigger for its exact
-branch, **`work/nebius-gpu-ci`**:
-
-1. Configure the secrets/IDs above and allow that exact branch in `nebius-ci`.
-2. Set **repository variable** `NEBIUS_CI_BOOTSTRAP=true`.
-3. Push a new commit (an empty commit is enough) to that reviewed branch:
-
-   ```sh
-   git switch work/nebius-gpu-ci
-   git commit --allow-empty -m "ci: test configured Nebius GPU runner"
-   git push origin work/nebius-gpu-ci
-   ```
-
-4. Watch the workflow through cleanup and verify in Nebius that the VM and boot
-   disk have disappeared. **Before merge, the independent scheduled/completion
-   cleanup workflow is not active.** If the run is cancelled or cleanup fails,
-   use the manual recovery below. Do not leave the first bootstrap run unattended.
-5. Remove `NEBIUS_CI_BOOTSTRAP` and the branch's environment access after testing.
 
 ## Optional environment variables
 
@@ -187,7 +174,7 @@ GITHUB_RUN_ID=123456 GITHUB_RUN_ATTEMPT=1 python3 ci/nebius/runner.py cleanup
 
 Do not unset cleanup configuration or revoke its credentials until no CI resources
 remain. To stop new automatic allocations, set `NEBIUS_CI_ENABLED=false` and
-remove `NEBIUS_CI_BOOTSTRAP`.
+remove the `gpu-ci` label from open PRs.
 
 ## References
 

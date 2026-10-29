@@ -5,7 +5,8 @@ on:
     - cron: '7,22,37,52 * * * *'
   workflow_dispatch:
   workflow_run:
-    workflows: [GPU CI]
+    # GPU jobs run inside CI (label/main) or GPU CI (manual).
+    workflows: [CI, GPU CI]
     types: [completed]
 
 permissions:

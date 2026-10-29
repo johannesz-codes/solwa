@@ -1,5 +1,7 @@
 name: GPU CI
 
+# Runs from CI after the CPU tests pass (main pushes, and PRs labelled gpu-ci),
+# or manually from main.
 on:
   workflow_dispatch:
     inputs:
@@ -7,36 +9,23 @@ on:
         description: 'Reviewed commit SHA or ref to test (empty = workflow commit)'
         required: false
         type: string
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
-  # Allows this PR to be tested before merging. Explicit repository opt-in below.
-  push:
-    branches: [work/nebius-gpu-ci]
+  workflow_call:
 
 permissions:
   contents: read
 
+# CI-called runs are serialized by the calling job's concurrency group; a shared
+# group here as well would make the called workflow wait on its own caller.
 concurrency:
-  group: solwa-nebius-gpu
+  group: ${{ github.event_name == 'workflow_dispatch' && 'solwa-nebius-gpu' || format('solwa-nebius-gpu-call-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
   provision:
     if: >-
       github.repository == 'johannesz-codes/solwa' &&
-      (
-        (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
-         vars.NEBIUS_CI_CLEANUP_ENABLED == 'true') ||
-        (github.event_name == 'workflow_run' &&
-         github.event.workflow_run.conclusion == 'success' &&
-         github.event.workflow_run.event == 'push' &&
-         github.event.workflow_run.head_repository.full_name == github.repository &&
-         vars.NEBIUS_CI_ENABLED == 'true' && vars.NEBIUS_CI_CLEANUP_ENABLED == 'true') ||
-        (github.event_name == 'push' && github.ref == 'refs/heads/work/nebius-gpu-ci' &&
-         vars.NEBIUS_CI_BOOTSTRAP == 'true')
-      )
+      vars.NEBIUS_CI_CLEANUP_ENABLED == 'true' &&
+      (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     environment: nebius-ci
     timeout-minutes: 22
@@ -69,7 +58,7 @@ jobs:
           NEBIUS_PLATFORM: ${{ vars.NEBIUS_PLATFORM }}
           NEBIUS_PRESET: ${{ vars.NEBIUS_PRESET }}
           NEBIUS_IMAGE_FAMILY: ${{ vars.NEBIUS_IMAGE_FAMILY }}
-          TEST_REF: ${{ inputs.ref || github.event.workflow_run.head_sha || github.sha }}
+          TEST_REF: ${{ inputs.ref || github.sha }}
         run: python3 ci/nebius/runner.py provision
 
   test:
