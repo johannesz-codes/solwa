@@ -114,6 +114,8 @@ The work on the original **torcwa** was supported by the National Research Found
 ## GPU continuous integration
 
 SOLWA can run its physics tests on a fresh Nebius GPU VM through GitHub Actions.
+To run them on a pull request, add the `gpu-ci` label; they start after the CPU
+tests pass.
 See [GPU CI setup and recovery](ci/nebius/README.md) for the two secrets,
 project/subnet configuration, the `gpu-ci` PR label, manual runs, and automatic
 cleanup.
