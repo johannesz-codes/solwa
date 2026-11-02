@@ -38,6 +38,7 @@ class rcwa:
         stable_eig_grad=True,
         avoid_Pinv_instability=False,
         max_Pinv_instability=0.005,
+        factorization="li",
     ):
         """
         Initialize Rigorous Coupled Wave Analysis (RCWA) simulation.
@@ -69,6 +70,12 @@ class rcwa:
             Avoid instability of P inverse (P: H to E field transformation). Default is False.
         max_Pinv_instability : float, optional
             Allowed maximum instability value for P inverse. Default is 0.005.
+        factorization : str, optional
+            Fourier factorization of the in-plane permittivity. 'li' applies Li's
+            inverse rule to the field components normal to the material interfaces
+            (L. Li, JOSA A 14, 2758 (1997)), which converges much faster for TM
+            polarization and crossed gratings. 'laurent' uses the plain Laurent rule
+            (the behaviour of solwa <= 0.2.0). Default is 'li'.
         """
 
         # Hardware
@@ -85,6 +92,10 @@ class rcwa:
             self._offload_device = offload_device
         else:
             self._offload_device = torch.device(offload_device)
+
+        if factorization not in ("li", "laurent"):
+            raise ValueError("Invalid factorization. Choose 'li' or 'laurent'.")
+        self.factorization = factorization
 
         # Stabilize the gradient of eigendecomposition
         self.stable_eig_grad = True if stable_eig_grad else False
@@ -261,6 +272,8 @@ class rcwa:
 
         if is_eps_homogenous and is_mu_homogenous:
             self._eigen_decomposition_homogenous(eps, mu)
+        elif not is_eps_homogenous and self.factorization == "li":
+            self._eigen_decomposition(*self._material_conv_li(eps))
         else:
             self._eigen_decomposition()
 
@@ -1937,6 +1950,34 @@ class rcwa:
 
         return material_convmat
 
+    def _material_conv_li(self, material):
+        """Li's convolution matrices (eps_xx, eps_yy) for the in-plane E components.
+
+        eps_xx = [[ [[1/eps]]_x^-1 ]]_y : inverse rule along x, Laurent along y.
+        eps_yy = [[ [[1/eps]]_y^-1 ]]_x : inverse rule along y, Laurent along x.
+        Rows/columns are ordered like ``_material_conv`` (x order major, y minor).
+        """
+        nx, ny = material.shape
+        ox, oy = self.order_x, self.order_y
+        Mx, My = len(ox), len(oy)
+        inv_material = 1.0 / material.to(self._dtype)
+        dx = ox[:, None] - ox[None, :]
+        dy = oy[:, None] - oy[None, :]
+
+        # eps_xx: per y-sample Toeplitz of 1/eps along x, inverted, then Laurent along y
+        coef_x = torch.fft.fft(inv_material, dim=0) / nx  # [nx, ny]
+        a_x = torch.linalg.inv(coef_x.T[:, dx])  # [ny, Mx, Mx]
+        a_x = torch.fft.fft(a_x, dim=0) / ny  # [q, Mx, Mx]
+        eps_xx = a_x[dy].permute(2, 0, 3, 1).reshape(Mx * My, Mx * My)
+
+        # eps_yy: per x-sample Toeplitz of 1/eps along y, inverted, then Laurent along x
+        coef_y = torch.fft.fft(inv_material, dim=1) / ny  # [nx, ny]
+        a_y = torch.linalg.inv(coef_y[:, dy])  # [nx, My, My]
+        a_y = torch.fft.fft(a_y, dim=0) / nx  # [p, My, My]
+        eps_yy = a_y[dx].permute(0, 2, 1, 3).reshape(Mx * My, Mx * My)
+
+        return eps_xx, eps_yy
+
     def _eigen_decomposition_homogenous(self, eps, mu):
         # H to E transformation matirx
         self.P.append(
@@ -1989,7 +2030,10 @@ class rcwa:
         self.kz_norm.append(kz_norm)
         self.E_eigvec.append(E_eigvec)
 
-    def _eigen_decomposition(self):
+    def _eigen_decomposition(self, eps_xx=None, eps_yy=None):
+        # Q multiplies Ex with eps_xx and Ey with eps_yy (Laurent: both eps_conv)
+        if eps_xx is None:
+            eps_xx = eps_yy = self.eps_conv[-1]
         # H to E transformation matirx
         P_tmp = torch.matmul(
             torch.vstack((self.Kx_norm, self.Ky_norm)),
@@ -2016,12 +2060,8 @@ class rcwa:
         self.Q.append(
             torch.hstack(
                 (
-                    torch.vstack(
-                        (torch.zeros_like(self.eps_conv[-1]), self.eps_conv[-1])
-                    ),
-                    torch.vstack(
-                        (-self.eps_conv[-1], torch.zeros_like(self.eps_conv[-1]))
-                    ),
+                    torch.vstack((torch.zeros_like(eps_xx), eps_xx)),
+                    torch.vstack((-eps_yy, torch.zeros_like(eps_yy))),
                 )
             )
             + torch.matmul(Q_tmp, torch.hstack((-self.Ky_norm, self.Kx_norm)))
