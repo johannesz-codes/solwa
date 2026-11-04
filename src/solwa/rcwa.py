@@ -1,6 +1,27 @@
+import functools
+
 import torch
 from math import pi
 from .torch_eig import Eig
+
+
+def _precision_io(method):
+    """Cast tensor arguments to the compute precision and results back to the
+    user-facing dtype when ``auto_precision`` is enabled (no-op otherwise)."""
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        if not getattr(self, "auto_precision", False) or self._io_depth > 0:
+            return method(self, *args, **kwargs)
+        self._io_depth += 1
+        try:
+            args = [self._cast(a, self._dtype) for a in args]
+            kwargs = {k: self._cast(v, self._dtype) for k, v in kwargs.items()}
+            return self._cast(method(self, *args, **kwargs), self._io_dtype)
+        finally:
+            self._io_depth -= 1
+
+    return wrapper
 
 
 class rcwa:
@@ -39,6 +60,7 @@ class rcwa:
         avoid_Pinv_instability=False,
         max_Pinv_instability=0.005,
         factorization="li",
+        auto_precision=False,
     ):
         """
         Initialize Rigorous Coupled Wave Analysis (RCWA) simulation.
@@ -76,13 +98,42 @@ class rcwa:
             (L. Li, JOSA A 14, 2758 (1997)), which converges much faster for TM
             polarization and crossed gratings. 'laurent' uses the plain Laurent rule
             (the behaviour of solwa <= 0.2.0). Default is 'li'.
+        auto_precision : bool, optional
+            Mixed-precision mode. If True, the layer eigendecomposition always
+            runs in complex128 and all other computations run in complex64,
+            whatever ``dtype`` is. In complex64 the eigendecomposition is what
+            limits accuracy, so this mode gets close to complex128 results
+            while keeping roughly the memory footprint of complex64 and most of
+            its speed advantage over complex128.
+
+            ``dtype`` then only sets the interface precision:
+
+            * Tensor arguments of the public methods (permittivities, angles,
+              field coordinates, ...) are cast to complex64 / float32.
+            * Results of the public methods (``S_parameters``, ``field_*``,
+              ``poynting*``, ``diffraction_angle``, ``return_layer``) are
+              returned in ``dtype``, or its real counterpart for real values.
+            * Internal attributes (e.g. ``S``, ``C``, ``kz_norm``, the layer
+              S-matrices) stay in complex64.
+
+            The casts are differentiable, so autograd works as usual and
+            gradients reach the input tensors in their own dtype. Gradient
+            accuracy is at least that of complex64, since the backward pass of
+            the matrix inversions still runs in complex64. Default is False.
         """
 
         # Hardware
         if dtype != torch.complex64 and dtype != torch.complex128:
             raise ValueError("Invalid simulation data type")
+        self.auto_precision = bool(auto_precision)
+        self._io_depth = 0
+        self._io_dtype = dtype
+        if self.auto_precision:
+            self._dtype = torch.complex64
+            self._eig_dtype = torch.complex128
         else:
             self._dtype = dtype
+            self._eig_dtype = None
         self._device = device
 
         # Device offloading
@@ -162,6 +213,7 @@ class rcwa:
         # Single layer scattering matrices
         self.layer_S11, self.layer_S21, self.layer_S12, self.layer_S22 = [], [], [], []
 
+    @_precision_io
     def add_input_layer(self, eps=1.0, mu=1.0):
         """
         Add input layer to the simulation.
@@ -181,6 +233,7 @@ class rcwa:
         self.mu_in = torch.as_tensor(mu, dtype=self._dtype, device=self._device)
         self.Sin = []
 
+    @_precision_io
     def add_output_layer(self, eps=1.0, mu=1.0):
         """
         Add output layer to the simulation.
@@ -200,6 +253,7 @@ class rcwa:
         self.mu_out = torch.as_tensor(mu, dtype=self._dtype, device=self._device)
         self.Sout = []
 
+    @_precision_io
     def set_incident_angle(self, inc_ang, azi_ang, angle_layer="input"):
         """
         Set incident angle for the simulation.
@@ -227,6 +281,7 @@ class rcwa:
 
         self._kvectors()
 
+    @_precision_io
     def add_layer(self, thickness, eps=1.0, mu=1.0):
         """
         Add an internal layer to the simulation.
@@ -347,6 +402,7 @@ class rcwa:
             ]
 
     # Returns
+    @_precision_io
     def diffraction_angle(self, orders, *, layer="output", unit="radian"):
         """
         Calculate diffraction angles for the selected orders.
@@ -405,6 +461,7 @@ class rcwa:
 
         return inc_angle, azi_angle
 
+    @_precision_io
     def return_layer(self, layer_num, nx=100, ny=100):
         """
         Return spatial distributions of permittivity and permeability for the selected layer.
@@ -451,6 +508,7 @@ class rcwa:
 
         return eps_recover, mu_recover
 
+    @_precision_io
     def S_parameters(
         self,
         orders,
@@ -865,6 +923,7 @@ class rcwa:
         else:
             return None
 
+    @_precision_io
     def source_planewave(
         self, *, amplitude=[1.0, 0.0], direction="forward", notation="xy"
     ):
@@ -890,6 +949,7 @@ class rcwa:
             amplitude=amplitude, orders=[0, 0], direction=direction, notation=notation
         )
 
+    @_precision_io
     def source_fourier(self, *, amplitude, orders, direction="forward", notation="xy"):
         """
         Generate a Fourier source with multiple orders.
@@ -975,6 +1035,7 @@ class rcwa:
 
         self.E_i = E_i
 
+    @_precision_io
     def field_xz(self, x_axis, z_axis, y):
         """
         Calculate XZ-plane electromagnetic field distribution.
@@ -1218,6 +1279,7 @@ class rcwa:
 
         return [Ex, Ey, Ez], [Hx, Hy, Hz]
 
+    @_precision_io
     def field_yz(self, y_axis, z_axis, x):
         """
         Calculate YZ-plane electromagnetic field distribution.
@@ -1464,6 +1526,7 @@ class rcwa:
 
         return [Ex, Ey, Ez], [Hx, Hy, Hz]
 
+    @_precision_io
     def field_xy(self, layer_num, x_axis, y_axis, z_prop=0.0):
         """
         Calculate XY-plane electromagnetic field distribution at a selected layer.
@@ -1656,6 +1719,7 @@ class rcwa:
 
         return [Ex, Ey, Ez], [Hx, Hy, Hz]
 
+    @_precision_io
     def poynting(self, E, H):
         """
         Compute the time-averaged Poynting vector for phasor fields.
@@ -1681,6 +1745,7 @@ class rcwa:
         Sz = 0.5 * torch.real(Ex * Hy.conj() - Ey * Hx.conj())
         return (Sx, Sy, Sz)
 
+    @_precision_io
     def poynting_xy(self, layer_num, x_axis, y_axis, z_prop=0.0):
         """
         Compute the Poynting vector on an XY plane inside a chosen layer.
@@ -1708,6 +1773,7 @@ class rcwa:
         E, H = self.field_xy(layer_num, x_axis, y_axis, z_prop)
         return self.poynting(E, H)
 
+    @_precision_io
     def poynting_flux(
         self,
         layer_num,
@@ -1766,6 +1832,20 @@ class rcwa:
         )
 
     # Internal functions
+    @staticmethod
+    def _cast(obj, dtype):
+        """Cast complex/floating tensors (also inside lists/tuples) to *dtype*
+        or its real counterpart; other objects are returned unchanged."""
+        if isinstance(obj, torch.Tensor):
+            if obj.is_complex():
+                return obj.to(dtype)
+            if obj.is_floating_point():
+                return obj.to(torch.empty((), dtype=dtype).real.dtype)
+            return obj
+        if isinstance(obj, (list, tuple)):
+            return type(obj)(rcwa._cast(o, dtype) for o in obj)
+        return obj
+
     def _d(self, tensor):
         """Return *tensor* on the compute device, loading from offload device if needed."""
         if self._offload_device is not None:
@@ -2078,16 +2158,19 @@ class rcwa:
         )
 
         # Eigen-decomposition
+        PQ = torch.matmul(self.P[-1], self.Q[-1])
+        if self._eig_dtype is not None:
+            PQ = PQ.to(self._eig_dtype)
         if self.stable_eig_grad is True:
-            kz_norm, E_eigvec = Eig.apply(torch.matmul(self.P[-1], self.Q[-1]))
+            kz_norm, E_eigvec = Eig.apply(PQ)
         else:
-            kz_norm, E_eigvec = torch.linalg.eig(torch.matmul(self.P[-1], self.Q[-1]))
+            kz_norm, E_eigvec = torch.linalg.eig(PQ)
 
         kz_norm = torch.sqrt(kz_norm)
         self.kz_norm.append(
-            torch.where(torch.imag(kz_norm) < 0, -kz_norm, kz_norm)
+            torch.where(torch.imag(kz_norm) < 0, -kz_norm, kz_norm).to(self._dtype)
         )  # Normalized kz for positive mode
-        self.E_eigvec.append(E_eigvec)
+        self.E_eigvec.append(E_eigvec.to(self._dtype))
 
     def _solve_layer_smatrix(self):
         Kz_norm = torch.diag(self.kz_norm[-1])
