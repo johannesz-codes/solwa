@@ -1,4 +1,4 @@
-**solwa-0.1.0**
+**solwa 0.3.0rc1**
 ======
 
 * License: LGPL
@@ -11,9 +11,19 @@ Features
 --------
 **solwa** (**solar** + **rcwa**) is a PyTorch implementation of rigorous coupled-wave analysis (RCWA) based on **torcwa** https://github.com/kch3782/torcwa
 
-* **GPU-accelerated** simulation
+* **GPU-accelerated** simulation on CUDA, with CPU support
 
-* Supporting **automatic differentiation** for optimization
+* **Automatic differentiation** through simulations, material properties, and geometry for gradient-based optimization
+
+* **Li Fourier factorization** for improved convergence, with the Laurent rule also available
+
+* Geometry tools for common shapes and Boolean operations, including unions, intersections, and differences
+
+* Wavelength-dependent refractive-index data with differentiable interpolation
+
+* Scattering parameters, diffraction angles, electromagnetic field maps, and Poynting vector / power-flux calculations
+
+* Optional layer offloading to reduce GPU memory use in multilayer simulations
 
 * Units: Lorentz-Heaviside units
 
@@ -63,7 +73,8 @@ significant changes from the original torcwa
 1. Constants are loaded from standard libraries instead of defining them again in the code.
 2. Major cleanup of the code structure for better readability and maintainability.
 3. Better error handling and messages.
-4. Addition of functions for calculation of the poynting vector and power flux.
+4. Li Fourier factorization, with the Laurent rule available as an option.
+5. Poynting-vector and power-flux calculations, including integration over selected areas.
 
 
 <br/>
@@ -92,6 +103,9 @@ Maximize anisotropy
 
 8. [Example 6](./example/Example6.ipynb): Topology optimization  
 Maximize 1st order diffraction
+
+9. [Example 7](./example/Example7.ipynb): Layer-by-layer absorption
+Calculate absorbed power in each layer using Poynting flux
 
 <br/>
 
