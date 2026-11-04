@@ -1122,17 +1122,13 @@ class rcwa:
                 z_prop = z_axis[zi] - zm[layer_num[zi]]
 
                 if layer_num[zi] != prev_layer_num:
-                    if self.source_direction == "forward":
-                        C = torch.matmul(self._d(self.C[0][layer_num[zi]]), self.E_i)
-                    elif self.source_direction == "backward":
-                        C = torch.matmul(self._d(self.C[1][layer_num[zi]]), self.E_i)
+                    cp, cm = self._layer_amplitudes(layer_num[zi])
 
                     kz_norm = self._d(self.kz_norm[layer_num[zi]])
                     E_eigvec = self._d(self.E_eigvec[layer_num[zi]])
                     H_eigvec = self._d(self.H_eigvec[layer_num[zi]])
 
-                    Cp = torch.diag(C[: 2 * self.order_N, 0])
-                    Cm = torch.diag(C[2 * self.order_N :, 0])
+                    Cp, Cm = torch.diag(cp), torch.diag(cm)
 
                     eps_conv_inv = torch.linalg.inv(
                         self._d(self.eps_conv[layer_num[zi]])
@@ -1368,17 +1364,13 @@ class rcwa:
                     z_prop = z_axis[zi]
 
                 if layer_num[zi] != prev_layer_num:
-                    if self.source_direction == "forward":
-                        C = torch.matmul(self._d(self.C[0][layer_num[zi]]), self.E_i)
-                    elif self.source_direction == "backward":
-                        C = torch.matmul(self._d(self.C[1][layer_num[zi]]), self.E_i)
+                    cp, cm = self._layer_amplitudes(layer_num[zi])
 
                     kz_norm = self._d(self.kz_norm[layer_num[zi]])
                     E_eigvec = self._d(self.E_eigvec[layer_num[zi]])
                     H_eigvec = self._d(self.H_eigvec[layer_num[zi]])
 
-                    Cp = torch.diag(C[: 2 * self.order_N, 0])
-                    Cm = torch.diag(C[2 * self.order_N :, 0])
+                    Cp, Cm = torch.diag(cp), torch.diag(cm)
 
                     eps_conv_inv = torch.linalg.inv(
                         self._d(self.eps_conv[layer_num[zi]])
@@ -1584,17 +1576,13 @@ class rcwa:
 
         # Internal layers
         else:
-            if self.source_direction == "forward":
-                C = torch.matmul(self._d(self.C[0][layer_num]), self.E_i)
-            elif self.source_direction == "backward":
-                C = torch.matmul(self._d(self.C[1][layer_num]), self.E_i)
+            cp, cm = self._layer_amplitudes(layer_num)
 
             kz_norm = self._d(self.kz_norm[layer_num])
             E_eigvec = self._d(self.E_eigvec[layer_num])
             H_eigvec = self._d(self.H_eigvec[layer_num])
 
-            Cp = torch.diag(C[: 2 * self.order_N, 0])
-            Cm = torch.diag(C[2 * self.order_N :, 0])
+            Cp, Cm = torch.diag(cp), torch.diag(cm)
 
             eps_conv_inv = torch.linalg.inv(self._d(self.eps_conv[layer_num]))
             mu_conv_inv = torch.linalg.inv(self._d(self.mu_conv[layer_num]))
@@ -1765,7 +1753,91 @@ class rcwa:
             y_cells=y_cells,
         )
 
+    def flux_interfaces(self, normalize=True):
+        """
+        Compute the z-directed Poynting flux through every layer interface.
+
+        The flux is evaluated directly from the mode amplitudes of each layer
+        (Parseval over the Fourier orders), so no field grid is needed. Call
+        after ``solve_global_smatrix`` and a source function.
+
+        Parameters
+        ----------
+        normalize : bool, optional
+            If True, the flux is divided by the incident power, so for a forward
+            source ``1 - flux[0]`` is the reflectance and ``flux[-1]`` the
+            transmittance (for a backward source the flux is negative). If False, the flux is integrated over the unit cell
+            and matches ``poynting_flux``. Default is True.
+
+        Returns
+        -------
+        torch.Tensor
+            Real tensor of length ``layer_N + 1``. Entry ``i`` is the flux at
+            the input-side boundary of layer ``i``, the last entry the flux at
+            the output-side boundary of the last layer.
+        """
+
+        flux = []
+        for i in range(self.layer_N):
+            cp, cm = self._layer_amplitudes(i)
+            W = self._d(self.E_eigvec[i])
+            V = self._d(self.H_eigvec[i])
+            phase = torch.exp(
+                1.0j * self.omega * self._d(self.kz_norm[i]) * self.thickness[i]
+            )
+            flux.append(
+                self._fourier_flux(
+                    torch.matmul(W, cp + phase * cm), torch.matmul(V, cp - phase * cm)
+                )
+            )
+        flux.append(
+            self._fourier_flux(
+                torch.matmul(W, phase * cp + cm), torch.matmul(V, phase * cp - cm)
+            )
+        )
+        flux = torch.stack(flux)
+
+        if not normalize:
+            return flux * self.L[0] * self.L[1]
+
+        E_i = self.E_i[:, 0]
+        if self.source_direction == "forward":
+            V_inc = self.Vi if hasattr(self, "Vi") else self.Vf
+        else:
+            V_inc = -(self.Vo if hasattr(self, "Vo") else self.Vf)
+        return flux / torch.abs(self._fourier_flux(E_i, torch.matmul(V_inc, E_i)))
+
+    def layer_absorption(self):
+        """
+        Compute the power absorbed in each internal layer.
+
+        Difference of the interface fluxes from ``flux_interfaces``, normalized
+        to the incident power. For a forward source
+        ``R + T + layer_absorption().sum() = 1``.
+
+        Returns
+        -------
+        torch.Tensor
+            Real tensor of length ``layer_N`` with the absorbed power fraction
+            of each layer.
+        """
+
+        flux = self.flux_interfaces()
+        return flux[:-1] - flux[1:]
+
     # Internal functions
+    def _layer_amplitudes(self, layer_num):
+        """Forward and backward mode amplitudes of an internal layer for the current source."""
+        C = self.C[0] if self.source_direction == "forward" else self.C[1]
+        C = torch.matmul(self._d(C[layer_num]), self.E_i)[:, 0]
+        return C[: 2 * self.order_N], C[2 * self.order_N :]
+
+    def _fourier_flux(self, Exy, Hxy):
+        """Cell-averaged Sz of tangential Fourier fields [Ex; Ey], [Hx; Hy] (Parseval)."""
+        Ex, Ey = Exy[: self.order_N], Exy[self.order_N :]
+        Hx, Hy = Hxy[: self.order_N], Hxy[self.order_N :]
+        return 0.5 * torch.real(torch.sum(Ex * Hy.conj() - Ey * Hx.conj()))
+
     def _d(self, tensor):
         """Return *tensor* on the compute device, loading from offload device if needed."""
         if self._offload_device is not None:
@@ -2097,7 +2169,6 @@ class rcwa:
 
         Pinv_tmp = torch.linalg.inv(self.P[-1])
         if self.avoid_Pinv_instability:
-
             Pinv_ins_tmp1 = torch.max(
                 torch.abs(
                     torch.matmul(self.P[-1].detach(), Pinv_tmp.detach())
