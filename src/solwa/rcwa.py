@@ -163,7 +163,9 @@ class rcwa:
             self.Pinv_instability = None
             self.Qinv_instability = None
 
-        # Simulation parameters
+        # Simulation parameters (tensor inputs follow the compute precision)
+        freq = self._cast(freq, self._dtype)
+        L = self._cast(L, self._dtype)
         self.freq = torch.as_tensor(
             freq, dtype=self._dtype, device=self._device
         )  # unit^-1
@@ -2158,9 +2160,15 @@ class rcwa:
         )
 
         # Eigen-decomposition
-        PQ = torch.matmul(self.P[-1], self.Q[-1])
-        if self._eig_dtype is not None:
-            PQ = PQ.to(self._eig_dtype)
+        if self._eig_dtype is None:
+            PQ = torch.matmul(self.P[-1], self.Q[-1])
+        else:
+            # Form the product in the eig precision as well: a complex64 product
+            # breaks exact mode degeneracies (e.g. uniform layers), which the
+            # accurate eigensolver then resolves into near-parallel eigenvectors.
+            PQ = torch.matmul(
+                self.P[-1].to(self._eig_dtype), self.Q[-1].to(self._eig_dtype)
+            )
         if self.stable_eig_grad is True:
             kz_norm, E_eigvec = Eig.apply(PQ)
         else:

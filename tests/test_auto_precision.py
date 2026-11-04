@@ -13,11 +13,11 @@ REAL = {torch.complex64: torch.float32, torch.complex128: torch.float64}
 
 
 def _transmission(dtype, auto, device):
-    """Return (sim, t, T, dT/dR) for a patterned pillar plus a spacer layer."""
+    """Return (sim, t, T, dT/dR) for a patterned pillar plus a uniform spacer layer."""
     radius = torch.tensor(120.0, dtype=REAL[dtype], device=device, requires_grad=True)
     sim = solwa.rcwa(
-        freq=1 / 532.0,
-        order=[4, 4],
+        freq=torch.tensor(1 / 532.0, dtype=REAL[dtype], device=device),
+        order=[2, 2],
         L=[L, L],
         dtype=dtype,
         device=device,
@@ -38,7 +38,9 @@ def _transmission(dtype, auto, device):
     sim.add_layer(
         thickness=300.0, eps=1.0 + 5.0 * geo.circle(R=radius, Cx=L / 2, Cy=L / 2)
     )
-    sim.add_layer(thickness=80.0, eps=2.1)
+    # Uniform layer given as a tensor: exactly degenerate modes.
+    spacer = torch.full((128, 128), 2.1, dtype=REAL[dtype], device=device)
+    sim.add_layer(thickness=80.0, eps=spacer)
     sim.solve_global_smatrix()
     t = sim.S_parameters(orders=[[0, 0], [1, 0]], polarization="xx")
     T = (t.abs() ** 2).sum()
