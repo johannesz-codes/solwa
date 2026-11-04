@@ -1753,9 +1753,9 @@ class rcwa:
             y_cells=y_cells,
         )
 
-    def flux_interfaces(self, normalize=True):
+    def flux_interfaces(self, normalize=True, interfaces=None):
         """
-        Compute the z-directed Poynting flux through every layer interface.
+        Compute the z-directed Poynting flux through the layer interfaces.
 
         The flux is evaluated directly from the mode amplitudes of each layer
         (Parseval over the Fourier orders), so no field grid is needed. Call
@@ -1766,36 +1766,25 @@ class rcwa:
         normalize : bool, optional
             If True, the flux is divided by the incident power, so for a forward
             source ``1 - flux[0]`` is the reflectance and ``flux[-1]`` the
-            transmittance (for a backward source the flux is negative). If False, the flux is integrated over the unit cell
-            and matches ``poynting_flux``. Default is True.
+            transmittance (for a backward source the flux is negative). If
+            False, the flux is integrated over the unit cell and matches
+            ``poynting_flux``. Default is True.
+        interfaces : list of int, optional
+            Interfaces to evaluate, numbered as in the returned tensor. Default
+            is None (all interfaces).
 
         Returns
         -------
         torch.Tensor
-            Real tensor of length ``layer_N + 1``. Entry ``i`` is the flux at
-            the input-side boundary of layer ``i``, the last entry the flux at
-            the output-side boundary of the last layer.
+            Real tensor of length ``layer_N + 1`` (or ``len(interfaces)``).
+            Entry ``i`` is the flux at the input-side boundary of layer ``i``,
+            entry ``layer_N`` the flux at the output-side boundary of the last
+            layer.
         """
 
-        flux = []
-        for i in range(self.layer_N):
-            cp, cm = self._layer_amplitudes(i)
-            W = self._d(self.E_eigvec[i])
-            V = self._d(self.H_eigvec[i])
-            phase = torch.exp(
-                1.0j * self.omega * self._d(self.kz_norm[i]) * self.thickness[i]
-            )
-            flux.append(
-                self._fourier_flux(
-                    torch.matmul(W, cp + phase * cm), torch.matmul(V, cp - phase * cm)
-                )
-            )
-        flux.append(
-            self._fourier_flux(
-                torch.matmul(W, phase * cp + cm), torch.matmul(V, phase * cp - cm)
-            )
-        )
-        flux = torch.stack(flux)
+        if interfaces is None:
+            interfaces = range(self.layer_N + 1)
+        flux = torch.stack([self._interface_flux(j) for j in interfaces])
 
         if not normalize:
             return flux * self.L[0] * self.L[1]
@@ -1807,23 +1796,34 @@ class rcwa:
             V_inc = -(self.Vo if hasattr(self, "Vo") else self.Vf)
         return flux / torch.abs(self._fourier_flux(E_i, torch.matmul(V_inc, E_i)))
 
-    def layer_absorption(self):
+    def layer_absorption(self, layers=None):
         """
-        Compute the power absorbed in each internal layer.
+        Compute the power absorbed in internal layers.
 
         Difference of the interface fluxes from ``flux_interfaces``, normalized
         to the incident power. For a forward source
         ``R + T + layer_absorption().sum() = 1``.
 
+        Parameters
+        ----------
+        layers : list of int, optional
+            Layers to evaluate. Only the interfaces bounding these layers are
+            computed, which keeps the backward pass short when a single layer
+            is optimized. Default is None (all layers).
+
         Returns
         -------
         torch.Tensor
-            Real tensor of length ``layer_N`` with the absorbed power fraction
-            of each layer.
+            Real tensor of length ``layer_N`` (or ``len(layers)``) with the
+            absorbed power fraction of each layer.
         """
 
-        flux = self.flux_interfaces()
-        return flux[:-1] - flux[1:]
+        if layers is None:
+            flux = self.flux_interfaces()
+            return flux[:-1] - flux[1:]
+        layers = list(layers)
+        flux = self.flux_interfaces(interfaces=layers + [i + 1 for i in layers])
+        return flux[: len(layers)] - flux[len(layers) :]
 
     # Internal functions
     def _layer_amplitudes(self, layer_num):
@@ -1831,6 +1831,20 @@ class rcwa:
         C = self.C[0] if self.source_direction == "forward" else self.C[1]
         C = torch.matmul(self._d(C[layer_num]), self.E_i)[:, 0]
         return C[: 2 * self.order_N], C[2 * self.order_N :]
+
+    def _interface_flux(self, j):
+        """Cell-averaged Sz at interface j from the mode amplitudes of the adjacent layer."""
+        i = min(j, self.layer_N - 1)
+        cp, cm = self._layer_amplitudes(i)
+        phase = torch.exp(
+            1.0j * self.omega * self._d(self.kz_norm[i]) * self.thickness[i]
+        )
+        # input-side boundary of layer i, or output-side boundary of the last layer
+        p, m = (cp, phase * cm) if j < self.layer_N else (phase * cp, cm)
+        return self._fourier_flux(
+            torch.matmul(self._d(self.E_eigvec[i]), p + m),
+            torch.matmul(self._d(self.H_eigvec[i]), p - m),
+        )
 
     def _fourier_flux(self, Exy, Hxy):
         """Cell-averaged Sz of tangential Fourier fields [Ex; Ey], [Hx; Hy] (Parseval)."""

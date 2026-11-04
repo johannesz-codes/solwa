@@ -127,3 +127,15 @@ def test_gradient_matches_finite_difference(device, prec):
             Ap = build(dtype, rdtype, device, R=0.3 + h)[0].layer_absorption()[0]
             Am = build(dtype, rdtype, device, R=0.3 - h)[0].layer_absorption()[0]
         torch.testing.assert_close(grad, (Ap - Am) / (2 * h), rtol=1e-3, atol=1e-6)
+
+
+def test_layer_selection_matches_full_absorption(device, prec):
+    dtype, rdtype, _ = prec
+    sim, _ = build(dtype, rdtype, device)
+    A = sim.layer_absorption()
+
+    torch.testing.assert_close(sim.layer_absorption(layers=[1]), A[1:2])
+    torch.testing.assert_close(sim.layer_absorption(layers=[2, 0]), A[[2, 0]])
+    torch.testing.assert_close(
+        sim.flux_interfaces(interfaces=[3, 0]), sim.flux_interfaces()[[3, 0]]
+    )
