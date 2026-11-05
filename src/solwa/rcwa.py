@@ -1842,7 +1842,7 @@ class rcwa:
             if obj.is_complex():
                 return obj.to(dtype)
             if obj.is_floating_point():
-                return obj.to(torch.empty((), dtype=dtype).real.dtype)
+                return obj.to(dtype.to_real())
             return obj
         if isinstance(obj, (list, tuple)):
             return type(obj)(rcwa._cast(o, dtype) for o in obj)
