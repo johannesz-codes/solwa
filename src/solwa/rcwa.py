@@ -117,9 +117,11 @@ class rcwa:
               S-matrices) stay in complex64.
 
             The casts are differentiable, so autograd works as usual and
-            gradients reach the input tensors in their own dtype. Gradient
-            accuracy is at least that of complex64, since the backward pass of
-            the matrix inversions still runs in complex64. Default is False.
+            gradients reach the input tensors in their own dtype. Gradients
+            are usually much more accurate than with plain complex64, but not
+            always at complex128 level: the matrix inversions and their
+            backward pass still run in complex64, so very small gradients can
+            remain inaccurate. Default is False.
         """
 
         # Hardware
