@@ -2095,7 +2095,6 @@ class rcwa:
         """
         nx, ny = material.shape[-2:]
         ox, oy = self.order_x, self.order_y
-        Mx, My = len(ox), len(oy)
         inv_material = 1.0 / material.to(self._dtype)
         dx = ox[:, None] - ox[None, :]
         dy = oy[:, None] - oy[None, :]
