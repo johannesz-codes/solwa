@@ -5,6 +5,16 @@ from math import pi
 from .torch_eig import Eig
 
 
+def _vcat(tensors):
+    """Block-row concatenation that keeps leading (wavelength) batch dims."""
+    return torch.cat(tensors, dim=-2)
+
+
+def _hcat(tensors):
+    """Block-column concatenation that keeps leading (wavelength) batch dims."""
+    return torch.cat(tensors, dim=-1)
+
+
 def _precision_io(method):
     """Cast tensor arguments to the compute precision and results back to the
     user-facing dtype when ``auto_precision`` is enabled (no-op otherwise)."""
@@ -71,7 +81,12 @@ class rcwa:
         Parameters
         ----------
         freq : float or torch.Tensor
-            Simulation frequency (unit: length^-1).
+            Simulation frequency (unit: length^-1). A 1-D tensor of
+            frequencies solves all of them in one batched run (geometry is
+            shared). Permittivities may then carry a leading wavelength axis
+            (``[B]`` for homogeneous media, ``[B, nx, ny]`` for patterns), and
+            results get a leading axis of size B. Field methods and
+            ``return_layer`` do not support batched frequencies yet.
         order : list of int
             Fourier truncation order [x_order, y_order].
         L : list of float
@@ -303,25 +318,21 @@ class rcwa:
         """
 
         is_eps_homogenous = (
-            isinstance(eps, float)
-            or isinstance(eps, complex)
-            or (eps.dim() == 0)
-            or ((eps.dim() == 1) and eps.shape[0] == 1)
+            isinstance(eps, float) or isinstance(eps, complex) or (eps.dim() <= 1)
         )
         is_mu_homogenous = (
-            isinstance(mu, float)
-            or isinstance(mu, float)
-            or (mu.dim() == 0)
-            or ((mu.dim() == 1) and mu.shape[0] == 1)
+            isinstance(mu, float) or isinstance(mu, float) or (mu.dim() <= 1)
         )
 
         self.eps_conv.append(
-            eps * torch.eye(self.order_N, dtype=self._dtype, device=self._device)
+            self._bc(eps, 2)
+            * torch.eye(self.order_N, dtype=self._dtype, device=self._device)
             if is_eps_homogenous
             else self._material_conv(eps)
         )
         self.mu_conv.append(
-            mu * torch.eye(self.order_N, dtype=self._dtype, device=self._device)
+            self._bc(mu, 2)
+            * torch.eye(self.order_N, dtype=self._dtype, device=self._device)
             if is_mu_homogenous
             else self._material_conv(mu)
         )
@@ -452,10 +463,10 @@ class rcwa:
         eps = self.eps_in if layer == "input" else self.eps_out
         mu = self.mu_in if layer == "input" else self.mu_out
 
-        kx_norm = self.Kx_norm_dn[order_indices]
-        ky_norm = self.Ky_norm_dn[order_indices]
+        kx_norm = self.Kx_norm_dn[..., order_indices]
+        ky_norm = self.Ky_norm_dn[..., order_indices]
         Kt_norm_dn = torch.sqrt(kx_norm**2 + ky_norm**2)
-        kz_norm = torch.sqrt(eps * mu - kx_norm**2 - ky_norm**2)
+        kz_norm = torch.sqrt(self._bc(eps * mu, 1) - kx_norm**2 - ky_norm**2)
         inc_angle = torch.atan2(torch.real(Kt_norm_dn), torch.real(kz_norm))
         azi_angle = torch.atan2(torch.real(ky_norm), torch.real(kx_norm))
 
@@ -599,7 +610,9 @@ class rcwa:
             # power normalization factor
             if power_norm:
                 Kz_norm_dn_in_complex = torch.sqrt(
-                    self.eps_in * self.mu_in - self.Kx_norm_dn**2 - self.Ky_norm_dn**2
+                    self._bc(self.eps_in * self.mu_in, 1)
+                    - self.Kx_norm_dn**2
+                    - self.Ky_norm_dn**2
                 )
                 is_evanescent_in = (
                     torch.abs(
@@ -616,7 +629,9 @@ class rcwa:
                 Kz_norm_dn_in = torch.hstack((Kz_norm_dn_in, Kz_norm_dn_in))
 
                 Kz_norm_dn_out_complex = torch.sqrt(
-                    self.eps_out * self.mu_out - self.Kx_norm_dn**2 - self.Ky_norm_dn**2
+                    self._bc(self.eps_out * self.mu_out, 1)
+                    - self.Kx_norm_dn**2
+                    - self.Ky_norm_dn**2
                 )
                 is_evanescent_out = (
                     torch.abs(
@@ -664,33 +679,37 @@ class rcwa:
                 normalization = torch.sqrt(
                     (
                         1
-                        + (numerator_pol[order_indices] / numerator_kz[order_indices])
+                        + (
+                            numerator_pol[..., order_indices]
+                            / numerator_kz[..., order_indices]
+                        )
                         ** 2
                     )
                     / (
                         1
                         + (
-                            denominator_pol[ref_order_index]
-                            / denominator_kz[ref_order_index]
+                            denominator_pol[..., ref_order_index]
+                            / denominator_kz[..., ref_order_index]
                         )
                         ** 2
                     )
                 )
                 normalization = normalization * torch.sqrt(
-                    numerator_kz[order_indices] / denominator_kz[ref_order_index]
+                    numerator_kz[..., order_indices]
+                    / denominator_kz[..., ref_order_index]
                 )
             else:
                 normalization = 1.0
 
             # Get S-parameters
             if direction == "forward" and port == "transmission":
-                S = self.S[0][order_indices, ref_order_index] * normalization
+                S = self.S[0][..., order_indices, ref_order_index] * normalization
             elif direction == "forward" and port == "reflection":
-                S = self.S[1][order_indices, ref_order_index] * normalization
+                S = self.S[1][..., order_indices, ref_order_index] * normalization
             elif direction == "backward" and port == "reflection":
-                S = self.S[2][order_indices, ref_order_index] * normalization
+                S = self.S[2][..., order_indices, ref_order_index] * normalization
             elif direction == "backward" and port == "transmission":
-                S = self.S[3][order_indices, ref_order_index] * normalization
+                S = self.S[3][..., order_indices, ref_order_index] * normalization
 
             S = torch.where(torch.isinf(S), torch.zeros_like(S), S)
             S = torch.where(torch.isnan(S), torch.zeros_like(S), S)
@@ -701,26 +720,26 @@ class rcwa:
             if direction == "forward" and port == "transmission":
                 idx = 0
                 order_sign, ref_sign = 1, 1
-                order_k0_norm2 = self.eps_out * self.mu_out
-                ref_k0_norm2 = self.eps_in * self.mu_in
+                order_k0_norm2 = self._bc(self.eps_out * self.mu_out, 1)
+                ref_k0_norm2 = self._bc(self.eps_in * self.mu_in, 1)
             elif direction == "forward" and port == "reflection":
                 idx = 1
                 order_sign, ref_sign = -1, 1
-                order_k0_norm2 = self.eps_in * self.mu_in
-                ref_k0_norm2 = self.eps_in * self.mu_in
+                order_k0_norm2 = self._bc(self.eps_in * self.mu_in, 1)
+                ref_k0_norm2 = self._bc(self.eps_in * self.mu_in, 1)
             elif direction == "backward" and port == "reflection":
                 idx = 2
                 order_sign, ref_sign = 1, -1
-                order_k0_norm2 = self.eps_out * self.mu_out
-                ref_k0_norm2 = self.eps_out * self.mu_out
+                order_k0_norm2 = self._bc(self.eps_out * self.mu_out, 1)
+                ref_k0_norm2 = self._bc(self.eps_out * self.mu_out, 1)
             elif direction == "backward" and port == "transmission":
                 idx = 3
                 order_sign, ref_sign = -1, -1
-                order_k0_norm2 = self.eps_in * self.mu_in
-                ref_k0_norm2 = self.eps_out * self.mu_out
+                order_k0_norm2 = self._bc(self.eps_in * self.mu_in, 1)
+                ref_k0_norm2 = self._bc(self.eps_out * self.mu_out, 1)
 
-            order_Kx_norm_dn = self.Kx_norm_dn[order_indices]
-            order_Ky_norm_dn = self.Ky_norm_dn[order_indices]
+            order_Kx_norm_dn = self.Kx_norm_dn[..., order_indices]
+            order_Ky_norm_dn = self.Ky_norm_dn[..., order_indices]
             order_Kt_norm_dn = torch.sqrt(order_Kx_norm_dn**2 + order_Ky_norm_dn**2)
             order_Kz_norm_dn = order_sign * torch.abs(
                 torch.real(
@@ -747,8 +766,8 @@ class rcwa:
                 torch.real(order_Ky_norm_dn), torch.real(order_Kx_norm_dn)
             )
 
-            ref_Kx_norm_dn = self.Kx_norm_dn[ref_order_index]
-            ref_Ky_norm_dn = self.Ky_norm_dn[ref_order_index]
+            ref_Kx_norm_dn = self.Kx_norm_dn[..., ref_order_index]
+            ref_Ky_norm_dn = self.Ky_norm_dn[..., ref_order_index]
             ref_Kt_norm_dn = torch.sqrt(ref_Kx_norm_dn**2 + ref_Ky_norm_dn**2)
             ref_Kz_norm_dn = ref_sign * torch.abs(
                 torch.real(
@@ -771,11 +790,11 @@ class rcwa:
                 torch.real(ref_Ky_norm_dn), torch.real(ref_Kx_norm_dn)
             )
 
-            xx = self.S[idx][order_indices, ref_order_index]
-            xy = self.S[idx][order_indices, ref_order_index + self.order_N]
-            yx = self.S[idx][order_indices + self.order_N, ref_order_index]
+            xx = self.S[idx][..., order_indices, ref_order_index]
+            xy = self.S[idx][..., order_indices, ref_order_index + self.order_N]
+            yx = self.S[idx][..., order_indices + self.order_N, ref_order_index]
             yy = self.S[idx][
-                order_indices + self.order_N, ref_order_index + self.order_N
+                ..., order_indices + self.order_N, ref_order_index + self.order_N
             ]
 
             xx = torch.where(order_is_evanescent, torch.zeros_like(xx), xx)
@@ -783,7 +802,7 @@ class rcwa:
             yx = torch.where(order_is_evanescent, torch.zeros_like(yx), yx)
             yy = torch.where(order_is_evanescent, torch.zeros_like(yy), yy)
 
-            if ref_is_evanescent:
+            if ref_is_evanescent.all():
                 S = torch.zeros_like(xx)
                 return S
 
@@ -860,7 +879,9 @@ class rcwa:
 
             if power_norm:
                 Kz_norm_dn_in_complex = torch.sqrt(
-                    self.eps_in * self.mu_in - self.Kx_norm_dn**2 - self.Ky_norm_dn**2
+                    self._bc(self.eps_in * self.mu_in, 1)
+                    - self.Kx_norm_dn**2
+                    - self.Ky_norm_dn**2
                 )
                 is_evanescent_in = (
                     torch.abs(
@@ -877,7 +898,9 @@ class rcwa:
                 Kz_norm_dn_in = torch.hstack((Kz_norm_dn_in, Kz_norm_dn_in))
 
                 Kz_norm_dn_out_complex = torch.sqrt(
-                    self.eps_out * self.mu_out - self.Kx_norm_dn**2 - self.Ky_norm_dn**2
+                    self._bc(self.eps_out * self.mu_out, 1)
+                    - self.Kx_norm_dn**2
+                    - self.Ky_norm_dn**2
                 )
                 is_evanescent_out = (
                     torch.abs(
@@ -914,7 +937,8 @@ class rcwa:
                     denominator_kz = Kz_norm_dn_out
 
                 normalization = torch.sqrt(
-                    numerator_kz[order_indices] / denominator_kz[ref_order_index]
+                    numerator_kz[..., order_indices]
+                    / denominator_kz[..., ref_order_index]
                 )
             else:
                 normalization = 1.0
@@ -922,7 +946,7 @@ class rcwa:
             S = torch.where(torch.isinf(S), torch.zeros_like(S), S)
             S = torch.where(torch.isnan(S), torch.zeros_like(S), S)
 
-            return S * normalization
+            return torch.where(ref_is_evanescent, 0.0, S * normalization)
 
         else:
             return None
@@ -1015,7 +1039,9 @@ class rcwa:
             Kt_norm_dn = torch.sqrt(self.Kx_norm_dn**2 + self.Ky_norm_dn**2)
             Kz_norm_dn = sign * torch.abs(
                 torch.real(
-                    torch.sqrt(eps * mu - self.Kx_norm_dn**2 - self.Ky_norm_dn**2)
+                    torch.sqrt(
+                        self._bc(eps * mu, 1) - self.Kx_norm_dn**2 - self.Ky_norm_dn**2
+                    )
                 )
             )
 
@@ -1024,16 +1050,19 @@ class rcwa:
                 torch.real(self.Ky_norm_dn), torch.real(self.Kx_norm_dn)
             )
 
-            tmp1 = torch.vstack(
+            tmp1 = _vcat(
                 (
-                    torch.diag(torch.cos(inc_angle) * torch.cos(azi_angle)),
-                    torch.diag(torch.cos(inc_angle) * torch.sin(azi_angle)),
+                    torch.diag_embed(torch.cos(inc_angle) * torch.cos(azi_angle)),
+                    torch.diag_embed(torch.cos(inc_angle) * torch.sin(azi_angle)),
                 )
             )
-            tmp2 = torch.vstack(
-                (torch.diag(-torch.sin(azi_angle)), torch.diag(torch.cos(azi_angle)))
+            tmp2 = _vcat(
+                (
+                    torch.diag_embed(-torch.sin(azi_angle)),
+                    torch.diag_embed(torch.cos(azi_angle)),
+                )
             )
-            ps2xy = torch.hstack((tmp1, tmp2))
+            ps2xy = _hcat((tmp1, tmp2))
 
             E_i = torch.matmul(ps2xy.to(self._dtype), E_i)
 
@@ -1850,6 +1879,14 @@ class rcwa:
             return type(obj)(rcwa._cast(o, dtype) for o in obj)
         return obj
 
+    @staticmethod
+    def _bc(x, n):
+        """Append *n* singleton dims to a per-wavelength tensor so it broadcasts
+        against [B, ...] data; scalars and 0-d/size-1 tensors pass unchanged."""
+        if isinstance(x, torch.Tensor) and x.numel() > 1:
+            return x.reshape(x.shape + (1,) * n)
+        return x
+
     def _d(self, tensor):
         """Return *tensor* on the compute device, loading from offload device if needed."""
         if self._offload_device is not None:
@@ -1921,57 +1958,60 @@ class rcwa:
             )
 
         # Free space k-vectors and E to H transformation matrix
-        self.kx_norm = self.kx0_norm + self.order_x * self.Gx_norm
-        self.ky_norm = self.ky0_norm + self.order_y * self.Gy_norm
+        bc = self._bc
+        self.kx_norm = bc(self.kx0_norm, 1) + self.order_x * bc(self.Gx_norm, 1)
+        self.ky_norm = bc(self.ky0_norm, 1) + self.order_y * bc(self.Gy_norm, 1)
 
-        kx_norm_grid, ky_norm_grid = torch.meshgrid(
-            self.kx_norm, self.ky_norm, indexing="ij"
+        kx_norm_grid, ky_norm_grid = torch.broadcast_tensors(
+            self.kx_norm[..., :, None], self.ky_norm[..., None, :]
         )
 
-        self.Kx_norm_dn = torch.reshape(kx_norm_grid, (-1,))
-        self.Ky_norm_dn = torch.reshape(ky_norm_grid, (-1,))
-        self.Kx_norm = torch.diag(self.Kx_norm_dn)
-        self.Ky_norm = torch.diag(self.Ky_norm_dn)
+        self.Kx_norm_dn = kx_norm_grid.flatten(-2)
+        self.Ky_norm_dn = ky_norm_grid.flatten(-2)
+        self.Kx_norm = torch.diag_embed(self.Kx_norm_dn)
+        self.Ky_norm = torch.diag_embed(self.Ky_norm_dn)
 
         Kz_norm_dn = torch.sqrt(1.0 - self.Kx_norm_dn**2 - self.Ky_norm_dn**2)
         Kz_norm_dn = torch.where(
             torch.imag(Kz_norm_dn) < 0, torch.conj(Kz_norm_dn), Kz_norm_dn
         )
-        tmp1 = torch.vstack(
+        tmp1 = _vcat(
             (
-                torch.diag(-self.Ky_norm_dn * self.Kx_norm_dn / Kz_norm_dn),
-                torch.diag(Kz_norm_dn + self.Kx_norm_dn**2 / Kz_norm_dn),
+                torch.diag_embed(-self.Ky_norm_dn * self.Kx_norm_dn / Kz_norm_dn),
+                torch.diag_embed(Kz_norm_dn + self.Kx_norm_dn**2 / Kz_norm_dn),
             )
         )
-        tmp2 = torch.vstack(
+        tmp2 = _vcat(
             (
-                torch.diag(-Kz_norm_dn - self.Ky_norm_dn**2 / Kz_norm_dn),
-                torch.diag(self.Kx_norm_dn * self.Ky_norm_dn / Kz_norm_dn),
+                torch.diag_embed(-Kz_norm_dn - self.Ky_norm_dn**2 / Kz_norm_dn),
+                torch.diag_embed(self.Kx_norm_dn * self.Ky_norm_dn / Kz_norm_dn),
             )
         )
-        self.Vf = torch.hstack((tmp1, tmp2))
+        self.Vf = _hcat((tmp1, tmp2))
 
         if hasattr(self, "Sin"):
             # Input layer k-vectors and E to H transformation matrix
             Kz_norm_dn = torch.sqrt(
-                self.eps_in * self.mu_in - self.Kx_norm_dn**2 - self.Ky_norm_dn**2
+                self._bc(self.eps_in * self.mu_in, 1)
+                - self.Kx_norm_dn**2
+                - self.Ky_norm_dn**2
             )
             Kz_norm_dn = torch.where(
                 torch.imag(Kz_norm_dn) < 0, torch.conj(Kz_norm_dn), Kz_norm_dn
             )
-            tmp1 = torch.vstack(
+            tmp1 = _vcat(
                 (
-                    torch.diag(-self.Ky_norm_dn * self.Kx_norm_dn / Kz_norm_dn),
-                    torch.diag(Kz_norm_dn + self.Kx_norm_dn**2 / Kz_norm_dn),
+                    torch.diag_embed(-self.Ky_norm_dn * self.Kx_norm_dn / Kz_norm_dn),
+                    torch.diag_embed(Kz_norm_dn + self.Kx_norm_dn**2 / Kz_norm_dn),
                 )
             )
-            tmp2 = torch.vstack(
+            tmp2 = _vcat(
                 (
-                    torch.diag(-Kz_norm_dn - self.Ky_norm_dn**2 / Kz_norm_dn),
-                    torch.diag(self.Kx_norm_dn * self.Ky_norm_dn / Kz_norm_dn),
+                    torch.diag_embed(-Kz_norm_dn - self.Ky_norm_dn**2 / Kz_norm_dn),
+                    torch.diag_embed(self.Kx_norm_dn * self.Ky_norm_dn / Kz_norm_dn),
                 )
             )
-            self.Vi = torch.hstack((tmp1, tmp2))
+            self.Vi = _hcat((tmp1, tmp2))
 
             Vtmp1 = torch.linalg.inv(self.Vf + self.Vi)
             Vtmp2 = self.Vf - self.Vi
@@ -1985,24 +2025,26 @@ class rcwa:
         if hasattr(self, "Sout"):
             # Output layer k-vectors and E to H transformation matrix
             Kz_norm_dn = torch.sqrt(
-                self.eps_out * self.mu_out - self.Kx_norm_dn**2 - self.Ky_norm_dn**2
+                self._bc(self.eps_out * self.mu_out, 1)
+                - self.Kx_norm_dn**2
+                - self.Ky_norm_dn**2
             )
             Kz_norm_dn = torch.where(
                 torch.imag(Kz_norm_dn) < 0, torch.conj(Kz_norm_dn), Kz_norm_dn
             )
-            tmp1 = torch.vstack(
+            tmp1 = _vcat(
                 (
-                    torch.diag(-self.Ky_norm_dn * self.Kx_norm_dn / Kz_norm_dn),
-                    torch.diag(Kz_norm_dn + self.Kx_norm_dn**2 / Kz_norm_dn),
+                    torch.diag_embed(-self.Ky_norm_dn * self.Kx_norm_dn / Kz_norm_dn),
+                    torch.diag_embed(Kz_norm_dn + self.Kx_norm_dn**2 / Kz_norm_dn),
                 )
             )
-            tmp2 = torch.vstack(
+            tmp2 = _vcat(
                 (
-                    torch.diag(-Kz_norm_dn - self.Ky_norm_dn**2 / Kz_norm_dn),
-                    torch.diag(self.Kx_norm_dn * self.Ky_norm_dn / Kz_norm_dn),
+                    torch.diag_embed(-Kz_norm_dn - self.Ky_norm_dn**2 / Kz_norm_dn),
+                    torch.diag_embed(self.Kx_norm_dn * self.Ky_norm_dn / Kz_norm_dn),
                 )
             )
-            self.Vo = torch.hstack((tmp1, tmp2))
+            self.Vo = _hcat((tmp1, tmp2))
 
             Vtmp1 = torch.linalg.inv(self.Vf + self.Vo)
             Vtmp2 = self.Vf - self.Vo
@@ -2014,7 +2056,7 @@ class rcwa:
             self.Sout.append(2 * torch.matmul(Vtmp1, self.Vo))  # Tb S22
 
     def _material_conv(self, material):
-        material_N = material.shape[0] * material.shape[1]
+        material_N = material.shape[-2] * material.shape[-1]
 
         # Matching indices
         order_x_grid, order_y_grid = torch.meshgrid(
@@ -2034,10 +2076,10 @@ class rcwa:
         material_fft_imag = torch.imag(material_fft)
 
         material_convmat_real = material_fft_real[
-            ox[indx] - ox[indy], oy[indx] - oy[indy]
+            ..., ox[indx] - ox[indy], oy[indx] - oy[indy]
         ]
         material_convmat_imag = material_fft_imag[
-            ox[indx] - ox[indy], oy[indx] - oy[indy]
+            ..., ox[indx] - ox[indy], oy[indx] - oy[indy]
         ]
 
         material_convmat = torch.complex(material_convmat_real, material_convmat_imag)
@@ -2051,7 +2093,7 @@ class rcwa:
         eps_yy = [[ [[1/eps]]_y^-1 ]]_x : inverse rule along y, Laurent along x.
         Rows/columns are ordered like ``_material_conv`` (x order major, y minor).
         """
-        nx, ny = material.shape
+        nx, ny = material.shape[-2:]
         ox, oy = self.order_x, self.order_y
         Mx, My = len(ox), len(oy)
         inv_material = 1.0 / material.to(self._dtype)
@@ -2059,67 +2101,63 @@ class rcwa:
         dy = oy[:, None] - oy[None, :]
 
         # eps_xx: per y-sample Toeplitz of 1/eps along x, inverted, then Laurent along y
-        coef_x = torch.fft.fft(inv_material, dim=0) / nx  # [nx, ny]
-        a_x = torch.linalg.inv(coef_x.T[:, dx])  # [ny, Mx, Mx]
-        a_x = torch.fft.fft(a_x, dim=0) / ny  # [q, Mx, Mx]
-        eps_xx = a_x[dy].permute(2, 0, 3, 1).reshape(Mx * My, Mx * My)
+        coef_x = torch.fft.fft(inv_material, dim=-2) / nx  # [..., nx, ny]
+        a_x = torch.linalg.inv(coef_x.transpose(-2, -1)[..., dx])  # [..., ny, Mx, Mx]
+        a_x = torch.fft.fft(a_x, dim=-3) / ny  # [..., q, Mx, Mx]
+        eps_xx = a_x[..., dy, :, :].movedim(-2, -4).movedim(-1, -2)
+        eps_xx = eps_xx.flatten(-4, -3).flatten(-2, -1)
 
         # eps_yy: per x-sample Toeplitz of 1/eps along y, inverted, then Laurent along x
-        coef_y = torch.fft.fft(inv_material, dim=1) / ny  # [nx, ny]
-        a_y = torch.linalg.inv(coef_y[:, dy])  # [nx, My, My]
-        a_y = torch.fft.fft(a_y, dim=0) / nx  # [p, My, My]
-        eps_yy = a_y[dx].permute(0, 2, 1, 3).reshape(Mx * My, Mx * My)
+        coef_y = torch.fft.fft(inv_material, dim=-1) / ny  # [..., nx, ny]
+        a_y = torch.linalg.inv(coef_y[..., dy])  # [..., nx, My, My]
+        a_y = torch.fft.fft(a_y, dim=-3) / nx  # [..., p, My, My]
+        eps_yy = a_y[..., dx, :, :].transpose(-3, -2)
+        eps_yy = eps_yy.flatten(-4, -3).flatten(-2, -1)
 
         return eps_xx, eps_yy
 
     def _eigen_decomposition_homogenous(self, eps, mu):
         # H to E transformation matirx
         self.P.append(
-            torch.hstack(
+            _hcat(
                 (
-                    torch.vstack(
-                        (torch.zeros_like(self.mu_conv[-1]), -self.mu_conv[-1])
-                    ),
-                    torch.vstack(
-                        (self.mu_conv[-1], torch.zeros_like(self.mu_conv[-1]))
-                    ),
+                    _vcat((torch.zeros_like(self.mu_conv[-1]), -self.mu_conv[-1])),
+                    _vcat((self.mu_conv[-1], torch.zeros_like(self.mu_conv[-1]))),
                 )
             )
             + 1
-            / eps
+            / self._bc(eps, 2)
             * torch.matmul(
-                torch.vstack((self.Kx_norm, self.Ky_norm)),
-                torch.hstack((self.Ky_norm, -self.Kx_norm)),
+                _vcat((self.Kx_norm, self.Ky_norm)),
+                _hcat((self.Ky_norm, -self.Kx_norm)),
             )
         )
         # E to H transformation matrix
         self.Q.append(
-            torch.hstack(
+            _hcat(
                 (
-                    torch.vstack(
-                        (torch.zeros_like(self.eps_conv[-1]), self.eps_conv[-1])
-                    ),
-                    torch.vstack(
-                        (-self.eps_conv[-1], torch.zeros_like(self.eps_conv[-1]))
-                    ),
+                    _vcat((torch.zeros_like(self.eps_conv[-1]), self.eps_conv[-1])),
+                    _vcat((-self.eps_conv[-1], torch.zeros_like(self.eps_conv[-1]))),
                 )
             )
             + 1
-            / mu
+            / self._bc(mu, 2)
             * torch.matmul(
-                torch.vstack((self.Kx_norm, self.Ky_norm)),
-                torch.hstack((-self.Ky_norm, self.Kx_norm)),
+                _vcat((self.Kx_norm, self.Ky_norm)),
+                _hcat((-self.Ky_norm, self.Kx_norm)),
             )
         )
 
         E_eigvec = torch.eye(
             self.P[-1].shape[-1], dtype=self._dtype, device=self._device
         )
-        kz_norm = torch.sqrt(eps * mu - self.Kx_norm_dn**2 - self.Ky_norm_dn**2)
+        kz_norm = torch.sqrt(
+            self._bc(eps * mu, 1) - self.Kx_norm_dn**2 - self.Ky_norm_dn**2
+        )
         kz_norm = torch.where(
             torch.imag(kz_norm) < 0, torch.conj(kz_norm), kz_norm
         )  # Normalized kz for positive mode
-        kz_norm = torch.cat((kz_norm, kz_norm))
+        kz_norm = torch.cat((kz_norm, kz_norm), dim=-1)
 
         self.kz_norm.append(kz_norm)
         self.E_eigvec.append(E_eigvec)
@@ -2130,35 +2168,31 @@ class rcwa:
             eps_xx = eps_yy = self.eps_conv[-1]
         # H to E transformation matirx
         P_tmp = torch.matmul(
-            torch.vstack((self.Kx_norm, self.Ky_norm)),
+            _vcat((self.Kx_norm, self.Ky_norm)),
             torch.linalg.inv(self.eps_conv[-1]),
         )
         self.P.append(
-            torch.hstack(
+            _hcat(
                 (
-                    torch.vstack(
-                        (torch.zeros_like(self.mu_conv[-1]), -self.mu_conv[-1])
-                    ),
-                    torch.vstack(
-                        (self.mu_conv[-1], torch.zeros_like(self.mu_conv[-1]))
-                    ),
+                    _vcat((torch.zeros_like(self.mu_conv[-1]), -self.mu_conv[-1])),
+                    _vcat((self.mu_conv[-1], torch.zeros_like(self.mu_conv[-1]))),
                 )
             )
-            + torch.matmul(P_tmp, torch.hstack((self.Ky_norm, -self.Kx_norm)))
+            + torch.matmul(P_tmp, _hcat((self.Ky_norm, -self.Kx_norm)))
         )
         # E to H transformation matrix
         Q_tmp = torch.matmul(
-            torch.vstack((self.Kx_norm, self.Ky_norm)),
+            _vcat((self.Kx_norm, self.Ky_norm)),
             torch.linalg.inv(self.mu_conv[-1]),
         )
         self.Q.append(
-            torch.hstack(
+            _hcat(
                 (
-                    torch.vstack((torch.zeros_like(eps_xx), eps_xx)),
-                    torch.vstack((-eps_yy, torch.zeros_like(eps_yy))),
+                    _vcat((torch.zeros_like(eps_xx), eps_xx)),
+                    _vcat((-eps_yy, torch.zeros_like(eps_yy))),
                 )
             )
-            + torch.matmul(Q_tmp, torch.hstack((-self.Ky_norm, self.Kx_norm)))
+            + torch.matmul(Q_tmp, _hcat((-self.Ky_norm, self.Kx_norm)))
         )
 
         # Eigen-decomposition
@@ -2183,9 +2217,11 @@ class rcwa:
         self.E_eigvec.append(E_eigvec.to(self._dtype))
 
     def _solve_layer_smatrix(self):
-        Kz_norm = torch.diag(self.kz_norm[-1])
-        phase = torch.diag(
-            torch.exp(1.0j * self.omega * self.kz_norm[-1] * self.thickness[-1])
+        Kz_norm = torch.diag_embed(self.kz_norm[-1])
+        phase = torch.diag_embed(
+            torch.exp(
+                1.0j * self._bc(self.omega, 1) * self.kz_norm[-1] * self.thickness[-1]
+            )
         )
 
         Pinv_tmp = torch.linalg.inv(self.P[-1])
@@ -2239,7 +2275,7 @@ class rcwa:
                 torch.matmul(Pinv_tmp, torch.matmul(self.E_eigvec[-1], Kz_norm))
             )
 
-        Ctmp1 = torch.vstack(
+        Ctmp1 = _vcat(
             (
                 self.E_eigvec[-1]
                 + torch.matmul(torch.linalg.inv(self.Vf), self.H_eigvec[-1]),
@@ -2250,7 +2286,7 @@ class rcwa:
                 ),
             )
         )
-        Ctmp2 = torch.vstack(
+        Ctmp2 = _vcat(
             (
                 torch.matmul(
                     self.E_eigvec[-1]
@@ -2261,13 +2297,13 @@ class rcwa:
                 + torch.matmul(torch.linalg.inv(self.Vf), self.H_eigvec[-1]),
             )
         )
-        Ctmp = torch.hstack((Ctmp1, Ctmp2))
+        Ctmp = _hcat((Ctmp1, Ctmp2))
 
         # Mode coupling coefficients
         self.Cf.append(
             torch.matmul(
                 torch.linalg.inv(Ctmp),
-                torch.vstack(
+                _vcat(
                     (
                         2
                         * torch.eye(
@@ -2285,7 +2321,7 @@ class rcwa:
         self.Cb.append(
             torch.matmul(
                 torch.linalg.inv(Ctmp),
-                torch.vstack(
+                _vcat(
                     (
                         torch.zeros(
                             [2 * self.order_N, 2 * self.order_N],
@@ -2304,31 +2340,31 @@ class rcwa:
         self.layer_S11.append(
             torch.matmul(
                 torch.matmul(self.E_eigvec[-1], phase),
-                self.Cf[-1][: 2 * self.order_N, :],
+                self.Cf[-1][..., : 2 * self.order_N, :],
             )
-            + torch.matmul(self.E_eigvec[-1], self.Cf[-1][2 * self.order_N :, :])
+            + torch.matmul(self.E_eigvec[-1], self.Cf[-1][..., 2 * self.order_N :, :])
         )
         self.layer_S21.append(
-            torch.matmul(self.E_eigvec[-1], self.Cf[-1][: 2 * self.order_N, :])
+            torch.matmul(self.E_eigvec[-1], self.Cf[-1][..., : 2 * self.order_N, :])
             + torch.matmul(
                 torch.matmul(self.E_eigvec[-1], phase),
-                self.Cf[-1][2 * self.order_N :, :],
+                self.Cf[-1][..., 2 * self.order_N :, :],
             )
             - torch.eye(2 * self.order_N, dtype=self._dtype, device=self._device)
         )
         self.layer_S12.append(
             torch.matmul(
                 torch.matmul(self.E_eigvec[-1], phase),
-                self.Cb[-1][: 2 * self.order_N, :],
+                self.Cb[-1][..., : 2 * self.order_N, :],
             )
-            + torch.matmul(self.E_eigvec[-1], self.Cb[-1][2 * self.order_N :, :])
+            + torch.matmul(self.E_eigvec[-1], self.Cb[-1][..., 2 * self.order_N :, :])
             - torch.eye(2 * self.order_N, dtype=self._dtype, device=self._device)
         )
         self.layer_S22.append(
-            torch.matmul(self.E_eigvec[-1], self.Cb[-1][: 2 * self.order_N, :])
+            torch.matmul(self.E_eigvec[-1], self.Cb[-1][..., : 2 * self.order_N, :])
             + torch.matmul(
                 torch.matmul(self.E_eigvec[-1], phase),
-                self.Cb[-1][2 * self.order_N :, :],
+                self.Cb[-1][..., 2 * self.order_N :, :],
             )
         )
 
