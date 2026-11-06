@@ -52,5 +52,8 @@ def test_wavelength_batch(dtype, factorization, device):
 
     tol = 1e-4 if dtype == torch.complex64 else 1e-10
     assert S.shape == (len(LAMS), len(POLS), 3)
+    assert (
+        _run(freq[:1], eps_hi[:1], dtype, factorization, device, radius).shape[0] == 1
+    )
     torch.testing.assert_close(S.detach(), torch.stack(S_ref), rtol=tol, atol=tol)
     torch.testing.assert_close(grad, grad_ref, rtol=10 * tol, atol=10 * tol)

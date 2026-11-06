@@ -936,9 +936,13 @@ class rcwa:
                     numerator_kz = Kz_norm_dn_in
                     denominator_kz = Kz_norm_dn_out
 
+                # Safe denominator: keeps NaN out of the backward pass for
+                # wavelengths whose reference order is evanescent (masked below).
                 normalization = torch.sqrt(
                     numerator_kz[..., order_indices]
-                    / denominator_kz[..., ref_order_index]
+                    / torch.where(
+                        ref_is_evanescent, 1.0, denominator_kz[..., ref_order_index]
+                    )
                 )
             else:
                 normalization = 1.0
@@ -1879,11 +1883,13 @@ class rcwa:
             return type(obj)(rcwa._cast(o, dtype) for o in obj)
         return obj
 
-    @staticmethod
-    def _bc(x, n):
+    def _bc(self, x, n):
         """Append *n* singleton dims to a per-wavelength tensor so it broadcasts
-        against [B, ...] data; scalars and 0-d/size-1 tensors pass unchanged."""
-        if isinstance(x, torch.Tensor) and x.numel() > 1:
+        against [B, ...] data. Scalars and 0-d tensors pass unchanged, as do
+        size-1 tensors unless ``freq`` itself is a (possibly length-1) batch."""
+        if isinstance(x, torch.Tensor) and (
+            x.numel() > 1 or (x.dim() > 0 and self.freq.dim() > 0)
+        ):
             return x.reshape(x.shape + (1,) * n)
         return x
 
