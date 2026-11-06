@@ -370,8 +370,16 @@ class rcwa:
             C = [[self._d(self.Cf[0])], [self._d(self.Cb[0])]]
         else:
             S11 = torch.eye(2 * self.order_N, dtype=self._dtype, device=self._device)
-            S21 = torch.zeros(2 * self.order_N, dtype=self._dtype, device=self._device)
-            S12 = torch.zeros(2 * self.order_N, dtype=self._dtype, device=self._device)
+            S21 = torch.zeros(
+                [2 * self.order_N, 2 * self.order_N],
+                dtype=self._dtype,
+                device=self._device,
+            )
+            S12 = torch.zeros(
+                [2 * self.order_N, 2 * self.order_N],
+                dtype=self._dtype,
+                device=self._device,
+            )
             S22 = torch.eye(2 * self.order_N, dtype=self._dtype, device=self._device)
             C = [[], []]
 
