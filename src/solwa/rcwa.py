@@ -186,6 +186,8 @@ class rcwa:
         self.freq = torch.as_tensor(
             freq, dtype=self._dtype, device=self._device
         )  # unit^-1
+        if isinstance(freq, torch.Tensor) and freq.dim() > 0:
+            freq = freq.to(self._device)  # 0-d CPU tensors mix with any device
         self.omega = 2 * pi * freq  # same as k0a
         self.L = torch.as_tensor(L, dtype=self._dtype, device=self._device)
 
@@ -370,8 +372,16 @@ class rcwa:
             C = [[self._d(self.Cf[0])], [self._d(self.Cb[0])]]
         else:
             S11 = torch.eye(2 * self.order_N, dtype=self._dtype, device=self._device)
-            S21 = torch.zeros(2 * self.order_N, dtype=self._dtype, device=self._device)
-            S12 = torch.zeros(2 * self.order_N, dtype=self._dtype, device=self._device)
+            S21 = torch.zeros(
+                [2 * self.order_N, 2 * self.order_N],
+                dtype=self._dtype,
+                device=self._device,
+            )
+            S12 = torch.zeros(
+                [2 * self.order_N, 2 * self.order_N],
+                dtype=self._dtype,
+                device=self._device,
+            )
             S22 = torch.eye(2 * self.order_N, dtype=self._dtype, device=self._device)
             C = [[], []]
 
