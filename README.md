@@ -1,5 +1,6 @@
 **solwa 0.3.0rc1**
 ======
+<!-- CI test -->
 
 * License: LGPL
 
