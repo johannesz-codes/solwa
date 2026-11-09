@@ -14,6 +14,7 @@ import pytest
 import torch
 
 import solwa
+from solwa.torch_eig import Eig
 
 LAMBDA = 1.3
 PERIOD = 1.0
@@ -98,3 +99,11 @@ def test_cpu_offloading_matches_and_saves_vram(device):
     assert (
         saving >= MIN_SAVING
     ), f"offloading saved only {saving:.0%} of peak GPU memory"
+
+
+def test_eig_backward_data_follows_offload_device(device):
+    A = torch.rand(4, 4, dtype=DTYPE, device=device, requires_grad=True)
+    w, _ = Eig.apply(A)
+    assert w.grad_fn.eigval.device == A.device
+    w, _ = Eig.apply(A, torch.device("cpu"))
+    assert w.grad_fn.eigval.device.type == "cpu"
