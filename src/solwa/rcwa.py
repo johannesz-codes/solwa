@@ -931,14 +931,15 @@ class rcwa:
                     numerator_kz = Kz_norm_dn_in
                     denominator_kz = Kz_norm_dn_out
 
-                # Safe denominator: keeps NaN out of the backward pass for
-                # wavelengths whose reference order is evanescent (masked below).
+                # Safe kz: sqrt(0) and 1/0 would put NaN into the shared gradient.
+                order_kz = numerator_kz[..., order_indices]
+                ref_kz = denominator_kz[..., ref_order_index]
+                invalid = (order_kz == 0) | (ref_kz == 0)
                 normalization = torch.sqrt(
-                    numerator_kz[..., order_indices]
-                    / torch.where(
-                        ref_is_evanescent, 1.0, denominator_kz[..., ref_order_index]
-                    )
+                    torch.where(invalid, 1.0, order_kz)
+                    / torch.where(invalid, 1.0, ref_kz)
                 )
+                normalization = torch.where(invalid, 0.0, normalization)
             else:
                 normalization = 1.0
 
