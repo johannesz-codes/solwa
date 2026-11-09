@@ -16,7 +16,7 @@ def _run(freq, eps_hi, dtype, factorization, device, radius):
         factorization=factorization,
     )  # fmt: skip
     sim.add_input_layer(eps=1.0)
-    sim.add_output_layer(eps=eps_hi)
+    sim.add_output_layer(eps=eps_hi.real.to(dtype))  # lossless: truly evanescent orders
     sim.set_incident_angle(inc_ang=0.2, azi_ang=0.1)
     geo = solwa.geometry(
         Lx=L, Ly=L, nx=64, ny=64, edge_sharpness=500.0,

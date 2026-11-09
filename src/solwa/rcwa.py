@@ -684,28 +684,19 @@ class rcwa:
                     numerator_kz = Kz_norm_dn_in
                     denominator_kz = Kz_norm_dn_out
 
+                # Safe kz: an evanescent order or reference has kz = 0, and the
+                # inf/NaN would reach the shared gradient of the whole batch.
+                order_kz = numerator_kz[..., order_indices]
+                ref_kz = denominator_kz[..., ref_order_index]
+                invalid = (order_kz == 0) | (ref_kz == 0)
+                order_kz = torch.where(invalid, 1.0, order_kz)
+                ref_kz = torch.where(invalid, 1.0, ref_kz)
                 normalization = torch.sqrt(
-                    (
-                        1
-                        + (
-                            numerator_pol[..., order_indices]
-                            / numerator_kz[..., order_indices]
-                        )
-                        ** 2
-                    )
-                    / (
-                        1
-                        + (
-                            denominator_pol[..., ref_order_index]
-                            / denominator_kz[..., ref_order_index]
-                        )
-                        ** 2
-                    )
+                    (1 + (numerator_pol[..., order_indices] / order_kz) ** 2)
+                    / (1 + (denominator_pol[..., ref_order_index] / ref_kz) ** 2)
                 )
-                normalization = normalization * torch.sqrt(
-                    numerator_kz[..., order_indices]
-                    / denominator_kz[..., ref_order_index]
-                )
+                normalization = normalization * torch.sqrt(order_kz / ref_kz)
+                normalization = torch.where(invalid, 0.0, normalization)
             else:
                 normalization = 1.0
 
