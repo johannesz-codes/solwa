@@ -57,3 +57,7 @@ def test_wavelength_batch(dtype, factorization, device):
     )
     torch.testing.assert_close(S.detach(), torch.stack(S_ref), rtol=tol, atol=tol)
     torch.testing.assert_close(grad, grad_ref, rtol=10 * tol, atol=10 * tol)
+
+    sim = solwa.rcwa(freq=freq, order=[1, 1], L=[L, L], dtype=dtype, device=device)
+    with pytest.raises(NotImplementedError, match="scalar freq"):
+        sim.field_xy(0, freq, freq)

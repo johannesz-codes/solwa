@@ -501,6 +501,8 @@ class rcwa:
             (eps_recover, mu_recover) containing the recovered permittivity and permeability distributions.
         """
 
+        self._require_scalar_freq("return_layer")
+
         eps_fft = torch.zeros([nx, ny], dtype=self._dtype, device=self._device)
         mu_fft = torch.zeros([nx, ny], dtype=self._dtype, device=self._device)
         eps_conv = self._d(self.eps_conv[layer_num])
@@ -1087,6 +1089,8 @@ class rcwa:
             ([Ex, Ey, Ez], [Hx, Hy, Hz]) where each component is a torch.Tensor.
         """
 
+        self._require_scalar_freq("field_xz")
+
         if not isinstance(x_axis, torch.Tensor) or not isinstance(z_axis, torch.Tensor):
             raise TypeError("x and z axis must be torch.Tensor type.")
 
@@ -1330,6 +1334,8 @@ class rcwa:
         tuple
             ([Ex, Ey, Ez], [Hx, Hy, Hz]) where each component is a torch.Tensor.
         """
+
+        self._require_scalar_freq("field_yz")
 
         if not isinstance(y_axis, torch.Tensor) or not isinstance(z_axis, torch.Tensor):
             raise TypeError("y and z axis must be torch.Tensor type.")
@@ -1585,6 +1591,8 @@ class rcwa:
         tuple
             ([Ex, Ey, Ez], [Hx, Hy, Hz]) where each component is a torch.Tensor.
         """
+
+        self._require_scalar_freq("field_xy")
 
         if not isinstance(layer_num, int):
             raise TypeError('Parameter "layer_num" must be int type.')
@@ -1885,6 +1893,13 @@ class rcwa:
         ):
             return x.reshape(x.shape + (1,) * n)
         return x
+
+    def _require_scalar_freq(self, name):
+        if self.freq.dim() > 0:
+            raise NotImplementedError(
+                f"{name} does not support batched frequencies yet. "
+                "Run a separate simulation with a scalar freq for each wavelength."
+            )
 
     def _d(self, tensor):
         """Return *tensor* on the compute device, loading from offload device if needed."""
