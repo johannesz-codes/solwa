@@ -3,6 +3,7 @@ import warnings
 
 import torch
 from math import pi
+from .eig_reuse import reuse_eig
 from .torch_eig import Eig
 
 
@@ -77,6 +78,7 @@ class rcwa:
         max_Pinv_instability=0.005,
         factorization="li",
         auto_precision=False,
+        eig_reuse=False,
     ):
         """
         Initialize Rigorous Coupled Wave Analysis (RCWA) simulation.
@@ -144,6 +146,13 @@ class rcwa:
             always at complex128 level: the matrix inversions and their
             backward pass still run in complex64, so very small gradients can
             remain inaccurate. Default is False.
+        eig_reuse : bool, optional
+            For a 1-D ``freq``, compute the eigendecomposition of each patterned
+            layer only for the first wavelength and refine it along the batch with
+            matrix products, which suits GPUs better. Wavelengths should be ordered
+            so that neighbours are close; a wavelength that cannot be refined falls
+            back to a full eigendecomposition. Needs a complex128 eigendecomposition
+            (``dtype=torch.complex128`` or ``auto_precision=True``). Default is False.
         """
 
         # Hardware
@@ -159,6 +168,9 @@ class rcwa:
             self._dtype = dtype
             self._eig_dtype = None
         self._device = device
+        if eig_reuse and (self._eig_dtype or self._dtype) != torch.complex128:
+            raise ValueError("eig_reuse needs a complex128 eigendecomposition.")
+        self.eig_reuse = bool(eig_reuse)
 
         # Device offloading
         if offload_device is None:
@@ -2234,7 +2246,9 @@ class rcwa:
             PQ = torch.matmul(
                 self.P[-1].to(self._eig_dtype), self.Q[-1].to(self._eig_dtype)
             )
-        if self.stable_eig_grad is True:
+        if self.eig_reuse and PQ.dim() == 3:
+            kz_norm, E_eigvec = reuse_eig(PQ, Eig.broadening_parameter or 1e-10)
+        elif self.stable_eig_grad is True:
             kz_norm, E_eigvec = Eig.apply(PQ)
         else:
             kz_norm, E_eigvec = torch.linalg.eig(PQ)
