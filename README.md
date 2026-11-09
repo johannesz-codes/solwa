@@ -33,6 +33,8 @@ Features
 
 * Notation: exp(-*jωt*)
 
+* [Performance guide](./docs/performance.md): choosing the order, precision and memory options
+
 <br/>
 
 Installation
