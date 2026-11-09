@@ -171,7 +171,7 @@ class rcwa:
         self.freq = torch.as_tensor(
             freq, dtype=self._dtype, device=self._device
         )  # unit^-1
-        self.omega = 2 * pi * freq  # same as k0a
+        self.omega = 2 * pi * self.freq.real  # same as k0a
         self.L = torch.as_tensor(L, dtype=self._dtype, device=self._device)
 
         # Fourier order
