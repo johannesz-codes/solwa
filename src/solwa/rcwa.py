@@ -369,18 +369,12 @@ class rcwa:
             S22 = self._d(self.layer_S22[0])
             C = [[self._d(self.Cf[0])], [self._d(self.Cb[0])]]
         else:
-            S11 = torch.eye(2 * self.order_N, dtype=self._dtype, device=self._device)
-            S21 = torch.zeros(
-                [2 * self.order_N, 2 * self.order_N],
-                dtype=self._dtype,
-                device=self._device,
-            )
-            S12 = torch.zeros(
-                [2 * self.order_N, 2 * self.order_N],
-                dtype=self._dtype,
-                device=self._device,
-            )
-            S22 = torch.eye(2 * self.order_N, dtype=self._dtype, device=self._device)
+            shape = self.freq.shape + (2 * self.order_N, 2 * self.order_N)
+            eye = torch.eye(2 * self.order_N, dtype=self._dtype, device=self._device)
+            S11 = eye.expand(shape)
+            S21 = torch.zeros(shape, dtype=self._dtype, device=self._device)
+            S12 = torch.zeros(shape, dtype=self._dtype, device=self._device)
+            S22 = eye.expand(shape)
             C = [[], []]
 
         # Connection
