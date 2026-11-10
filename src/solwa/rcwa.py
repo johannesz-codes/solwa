@@ -2244,16 +2244,10 @@ class rcwa:
                 self.P[-1].shape[-1], dtype=self.P[-1].dtype, device=self.P[-1].device
             )
             Pinv_ins_tmp1 = torch.max(
-                torch.abs(
-                    torch.matmul(self.P[-1].detach(), Pinv_tmp.detach())
-                    - eye
-                )
+                torch.abs(torch.matmul(self.P[-1].detach(), Pinv_tmp.detach()) - eye)
             )
             Pinv_ins_tmp2 = torch.max(
-                torch.abs(
-                    torch.matmul(Pinv_tmp.detach(), self.P[-1].detach())
-                    - eye
-                )
+                torch.abs(torch.matmul(Pinv_tmp.detach(), self.P[-1].detach()) - eye)
             )
             Qinv_ins = torch.max(
                 torch.abs(
