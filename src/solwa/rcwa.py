@@ -2240,38 +2240,32 @@ class rcwa:
 
         Pinv_tmp = torch.linalg.inv(self.P[-1])
         if self.avoid_Pinv_instability:
-
+            eye = torch.eye(
+                self.P[-1].shape[-1], dtype=self.P[-1].dtype, device=self.P[-1].device
+            )
             Pinv_ins_tmp1 = torch.max(
                 torch.abs(
                     torch.matmul(self.P[-1].detach(), Pinv_tmp.detach())
-                    - torch.eye(self.P[-1].shape[-1]).to(self.P[-1])
+                    - eye
                 )
             )
             Pinv_ins_tmp2 = torch.max(
                 torch.abs(
                     torch.matmul(Pinv_tmp.detach(), self.P[-1].detach())
-                    - torch.eye(self.P[-1].shape[-1]).to(self.P[-1])
+                    - eye
                 )
             )
-            Qinv_ins_tmp1 = torch.max(
+            Qinv_ins = torch.max(
                 torch.abs(
                     torch.matmul(
-                        self.Q[-1].detach(), torch.linalg.inv(self.Q[-1]).detach()
+                        self.Q[-1].detach(), torch.linalg.inv(self.Q[-1].detach())
                     )
-                    - torch.eye(self.Q[-1].shape[-1]).to(self.Q[-1])
-                )
-            )
-            Qinv_ins_tmp2 = torch.max(
-                torch.abs(
-                    torch.matmul(
-                        self.Q[-1].detach(), torch.linalg.inv(self.Q[-1]).detach()
-                    )
-                    - torch.eye(self.Q[-1].shape[-1]).to(self.Q[-1])
+                    - eye
                 )
             )
 
             self.Pinv_instability.append(torch.maximum(Pinv_ins_tmp1, Pinv_ins_tmp2))
-            self.Qinv_instability.append(torch.maximum(Qinv_ins_tmp1, Qinv_ins_tmp2))
+            self.Qinv_instability.append(Qinv_ins)
 
             if self.Pinv_instability[-1] < self.max_Pinv_instability:
                 self.H_eigvec.append(
