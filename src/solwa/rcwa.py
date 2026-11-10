@@ -2247,8 +2247,8 @@ class rcwa:
             )
         )
 
-        Pinv_tmp = torch.linalg.inv(self.P[-1])
         if self.avoid_Pinv_instability:
+            Pinv_tmp = torch.linalg.inv(self.P[-1])
             eye = torch.eye(
                 self.P[-1].shape[-1], dtype=self.P[-1].dtype, device=self.P[-1].device
             )
@@ -2272,7 +2272,9 @@ class rcwa:
 
             if self.Pinv_instability[-1] < self.max_Pinv_instability:
                 self.H_eigvec.append(
-                    torch.matmul(Pinv_tmp, torch.matmul(self.E_eigvec[-1], Kz_norm))
+                    torch.linalg.solve(
+                        self.P[-1], self.E_eigvec[-1] * self.kz_norm[-1][..., None, :]
+                    )
                 )
             else:
                 self.H_eigvec.append(
@@ -2283,7 +2285,9 @@ class rcwa:
                 )
         else:
             self.H_eigvec.append(
-                torch.matmul(Pinv_tmp, torch.matmul(self.E_eigvec[-1], Kz_norm))
+                torch.linalg.solve(
+                    self.P[-1], self.E_eigvec[-1] * self.kz_norm[-1][..., None, :]
+                )
             )
 
         Ctmp1 = _vcat(
