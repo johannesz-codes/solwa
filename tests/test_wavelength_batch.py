@@ -10,10 +10,10 @@ LAMS = [500.0, 620.0, 780.0]
 POLS = ["xx", "yx", "pp", "ss"]
 
 
-def _run(freq, eps_hi, dtype, factorization, device, radius):
+def _run(freq, eps_hi, dtype, factorization, device, radius, **kw):
     sim = solwa.rcwa(
         freq=freq, order=[2, 2], L=[L, L], dtype=dtype, device=device,
-        factorization=factorization,
+        factorization=factorization, **kw,
     )  # fmt: skip
     sim.add_input_layer(eps=1.0)
     sim.add_output_layer(eps=eps_hi.real.to(dtype))  # lossless: truly evanescent orders
@@ -61,3 +61,17 @@ def test_wavelength_batch(dtype, factorization, device):
     sim = solwa.rcwa(freq=freq, order=[1, 1], L=[L, L], dtype=dtype, device=device)
     with pytest.raises(NotImplementedError, match="scalar freq"):
         sim.field_xy(0, freq, freq)
+
+
+@pytest.mark.parametrize("dtype", [torch.complex64, torch.complex128])
+def test_avoid_Pinv_instability(dtype, device):
+    rdt = dtype.to_real()
+    freq = 1.0 / torch.tensor(LAMS, dtype=rdt, device=device)
+    eps_hi = (2.0 + 1e5 / torch.tensor(LAMS, device=device) ** 2 + 0.02j).to(dtype)
+    radius = torch.tensor(110.0, dtype=rdt, device=device, requires_grad=True)
+    args = (freq, eps_hi, dtype, "li", device, radius)
+    S_guard = _run(*args, avoid_Pinv_instability=True)  # well-conditioned: Pinv branch
+    S = _run(*args)
+    torch.testing.assert_close(S_guard, S, rtol=0, atol=0)
+    grads = [torch.autograd.grad((s.abs() ** 2).sum(), radius)[0] for s in (S_guard, S)]
+    torch.testing.assert_close(*grads, rtol=0, atol=0)
