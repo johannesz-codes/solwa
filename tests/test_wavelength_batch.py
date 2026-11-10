@@ -68,7 +68,10 @@ def test_avoid_Pinv_instability(dtype, device):
     rdt = dtype.to_real()
     freq = 1.0 / torch.tensor(LAMS, dtype=rdt, device=device)
     eps_hi = (2.0 + 1e5 / torch.tensor(LAMS, device=device) ** 2 + 0.02j).to(dtype)
-    radius = torch.tensor(110.0, dtype=rdt, device=device)
+    radius = torch.tensor(110.0, dtype=rdt, device=device, requires_grad=True)
     args = (freq, eps_hi, dtype, "li", device, radius)
     S_guard = _run(*args, avoid_Pinv_instability=True)  # well-conditioned: Pinv branch
-    torch.testing.assert_close(S_guard, _run(*args), rtol=0, atol=0)
+    S = _run(*args)
+    torch.testing.assert_close(S_guard, S, rtol=0, atol=0)
+    grads = [torch.autograd.grad((s.abs() ** 2).sum(), radius)[0] for s in (S_guard, S)]
+    torch.testing.assert_close(*grads, rtol=0, atol=0)
