@@ -349,7 +349,8 @@ class rcwa:
         self.layer_N += 1
         self.thickness.append(thickness)
 
-        if is_eps_homogenous and is_mu_homogenous:
+        self._layer_is_homogeneous = is_eps_homogenous and is_mu_homogenous
+        if self._layer_is_homogeneous:
             self._eigen_decomposition_homogenous(eps, mu)
         elif not is_eps_homogenous and self.factorization == "li":
             self._eigen_decomposition(*self._material_conv_li(eps))
@@ -2382,29 +2383,35 @@ class rcwa:
         )
 
     def _raise_singular_P(self, info):
-        # P (H to E) is singular when a mode has kz = 0 in this layer, i.e. a
-        # diffraction order lies exactly on the layer's Rayleigh anomaly.
-        bad = torch.nonzero(info != 0).flatten().tolist()
+        # P (H to E) is singular when a mode has kz = 0 in this layer. In a
+        # homogeneous layer the modes are the diffraction orders, so this is a
+        # Rayleigh anomaly; patterned-layer eigenvalues are in solver order.
+        bad = torch.nonzero(info != 0).flatten().tolist() or [0]
         wl = (1 / self.freq.real).reshape(-1).tolist()
         wl_txt = ", ".join(
             f"{wl[b]:g}" + (f" (batch index {b})" if self.freq.dim() > 0 else "")
-            for b in (bad or [0])
+            for b in bad
         )
-        kz = torch.abs(self.kz_norm[-1][..., : self.order_N]).reshape(-1, self.order_N)
-        b0 = bad[0] if bad else 0
-        i = int(torch.argmin(kz[b0]))
-        order = (
-            int(self.order_x[i // len(self.order_y)]),
-            int(self.order_y[i % len(self.order_y)]),
-        )
+        kz = torch.abs(self.kz_norm[-1]).reshape(-1, 2 * self.order_N)[bad[0]]
+        if self._layer_is_homogeneous:
+            i = int(torch.argmin(kz[: self.order_N]))
+            ny = len(self.order_y)
+            order = (int(self.order_x[i // ny]), int(self.order_y[i % ny]))
+            where = f"min |kz| = {float(kz[i]):.2e} for order {order}"
+            cause = (
+                "that diffraction order lies exactly on a Rayleigh anomaly of "
+                "this layer (kz = 0, e.g. n * period / wavelength is an integer "
+                "at normal incidence)"
+            )
+        else:
+            i = int(torch.argmin(kz))
+            where = f"min |kz| = {float(kz[i]):.2e} for eigenmode {i}"
+            cause = "an eigenmode of this patterned layer has kz close to 0"
         raise torch.linalg.LinAlgError(
             f"Layer {self.layer_N - 1}: the H-to-E matrix P is singular at "
-            f"wavelength {wl_txt} (min |kz| = {float(kz[b0, i]):.2e} for order "
-            f"{order}). Likely cause: that diffraction order lies exactly on a "
-            "Rayleigh anomaly of this layer (kz = 0, e.g. n * period / wavelength "
-            "is an integer for a homogeneous layer). Shift the wavelength or "
-            "angle slightly, or give the layer permittivity a small imaginary "
-            "part."
+            f"wavelength {wl_txt} ({where}). Likely cause: {cause}. Shift the "
+            "wavelength or angle slightly, or give the layer permittivity a "
+            "small imaginary part."
         )
 
     def _RS_prod(self, Sm, Sn, Cm, Cn):
