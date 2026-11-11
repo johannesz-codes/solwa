@@ -1,4 +1,5 @@
 import functools
+import warnings
 
 import torch
 from math import pi
@@ -82,8 +83,8 @@ class rcwa:
         ----------
         freq : float or torch.Tensor
             Simulation frequency (unit: length^-1). A 1-D tensor of
-            frequencies solves all of them in one batched run (geometry is
-            shared). Permittivities may then carry a leading wavelength axis
+            frequencies solves all of them in one batched run (experimental,
+            emits a warning; geometry is shared). Permittivities may then carry a leading wavelength axis
             (``[B]`` for homogeneous media, ``[B, nx, ny]`` for patterns), and
             results get a leading axis of size B. Field methods and
             ``return_layer`` do not support batched frequencies yet.
@@ -186,6 +187,13 @@ class rcwa:
         self.freq = torch.as_tensor(
             freq, dtype=self._dtype, device=self._device
         )  # unit^-1
+        if self.freq.dim() > 0:
+            warnings.warn(
+                "Support for batched wavelengths is experimental and results "
+                "should be treated with caution.",
+                UserWarning,
+                stacklevel=2,
+            )
         self.omega = 2 * pi * self.freq.real  # same as k0a
         self.L = torch.as_tensor(L, dtype=self._dtype, device=self._device)
 
