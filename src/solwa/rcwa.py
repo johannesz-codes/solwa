@@ -84,9 +84,10 @@ class rcwa:
         freq : float or torch.Tensor
             Simulation frequency (unit: length^-1). A 1-D tensor of
             frequencies solves all of them in one batched run (experimental,
-            emits a warning; geometry is shared). Permittivities may then carry a leading wavelength axis
-            (``[B]`` for homogeneous media, ``[B, nx, ny]`` for patterns), and
-            results get a leading axis of size B. Field methods and
+            emits a warning; geometry is shared). Permittivities may then
+            carry a leading wavelength axis (``[B]`` for homogeneous media,
+            ``[B, nx, ny]`` for patterns), and results get a leading axis of
+            size B. Field methods and
             ``return_layer`` do not support batched frequencies yet.
         order : list of int
             Fourier truncation order [x_order, y_order].
