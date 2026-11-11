@@ -41,7 +41,8 @@ def test_wavelength_batch(dtype, factorization, device):
     eps_hi = (2.0 + 1e5 / torch.tensor(LAMS, device=device) ** 2 + 0.02j).to(dtype)
     radius = torch.tensor(110.0, dtype=rdt, device=device, requires_grad=True)
 
-    S = _run(freq, eps_hi, dtype, factorization, device, radius)
+    with pytest.warns(UserWarning, match="experimental"):
+        S = _run(freq, eps_hi, dtype, factorization, device, radius)
     (grad,) = torch.autograd.grad((S.abs() ** 2).sum(), radius)
 
     S_ref, grad_ref = [], 0.0
