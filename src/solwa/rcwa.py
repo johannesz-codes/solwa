@@ -2247,7 +2247,9 @@ class rcwa:
             )
         )
 
-        Pinv_tmp = torch.linalg.inv(self.P[-1])
+        Pinv_tmp, info = torch.linalg.inv_ex(self.P[-1])
+        if torch.any(info != 0):
+            self._raise_singular_P(info)
         if self.avoid_Pinv_instability:
             eye = torch.eye(
                 self.P[-1].shape[-1], dtype=self.P[-1].dtype, device=self.P[-1].device
@@ -2377,6 +2379,32 @@ class rcwa:
                 torch.matmul(self.E_eigvec[-1], phase),
                 self.Cb[-1][..., 2 * self.order_N :, :],
             )
+        )
+
+    def _raise_singular_P(self, info):
+        # P (H to E) is singular when a mode has kz = 0 in this layer, i.e. a
+        # diffraction order lies exactly on the layer's Rayleigh anomaly.
+        bad = torch.nonzero(info != 0).flatten().tolist()
+        wl = (1 / self.freq.real).reshape(-1).tolist()
+        wl_txt = ", ".join(
+            f"{wl[b]:g}" + (f" (batch index {b})" if self.freq.dim() > 0 else "")
+            for b in (bad or [0])
+        )
+        kz = torch.abs(self.kz_norm[-1][..., : self.order_N]).reshape(-1, self.order_N)
+        b0 = bad[0] if bad else 0
+        i = int(torch.argmin(kz[b0]))
+        order = (
+            int(self.order_x[i // len(self.order_y)]),
+            int(self.order_y[i % len(self.order_y)]),
+        )
+        raise torch.linalg.LinAlgError(
+            f"Layer {self.layer_N - 1}: the H-to-E matrix P is singular at "
+            f"wavelength {wl_txt} (min |kz| = {float(kz[b0, i]):.2e} for order "
+            f"{order}). Likely cause: that diffraction order lies exactly on a "
+            "Rayleigh anomaly of this layer (kz = 0, e.g. n * period / wavelength "
+            "is an integer for a homogeneous layer). Shift the wavelength or "
+            "angle slightly, or give the layer permittivity a small imaginary "
+            "part."
         )
 
     def _RS_prod(self, Sm, Sn, Cm, Cn):
