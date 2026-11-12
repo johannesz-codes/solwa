@@ -442,7 +442,20 @@ def cleanup(cloud, github, name=None, now=None, projects=None):
         except (KeyError, ValueError):
             return False
 
-    for project, vm in [(p, r) for p in projects for r in cloud.resources("instance", p)]:
+    unreachable = set()
+
+    def listed(kind):
+        # One unreachable project (e.g. a regional outage) must not block the others.
+        found = []
+        for project in projects:
+            try:
+                found += [(project, r) for r in cloud.resources(kind, project)]
+            except CIError as exc:
+                unreachable.add(project)
+                errors.append(f"{project}: {exc}")
+        return found
+
+    for project, vm in listed("instance"):
         if selected(vm):
             selected_names.add(vm["metadata"]["labels"]["ci-run"])
             try:
@@ -453,9 +466,10 @@ def cleanup(cloud, github, name=None, now=None, projects=None):
     # Managed boot disks normally disappear with their instance. Reconcile any
     # leftovers from failed creates/deletes, but never delete a live VM's disk.
     active = {r["metadata"]["labels"].get("ci-run")
-              for p in projects for r in cloud.resources("instance", p) if owned(r, github.repo)}
-    for project, disk in [(p, r) for p in projects for r in cloud.resources("disk", p)]:
-        if selected(disk) and disk["metadata"]["labels"].get("ci-run") not in active:
+              for _, r in listed("instance") if owned(r, github.repo)}
+    for project, disk in listed("disk"):
+        if (selected(disk) and project not in unreachable
+                and disk["metadata"]["labels"].get("ci-run") not in active):
             try:
                 cloud.delete("disk", disk["metadata"]["id"], project)
             except CIError as exc:
