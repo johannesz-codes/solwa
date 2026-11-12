@@ -39,6 +39,7 @@ jobs:
           NEBIUS_CREDENTIALS_JSON: ${{ secrets.NEBIUS_CREDENTIALS_JSON }}
           GH_RUNNER_TOKEN: ${{ secrets.GH_RUNNER_TOKEN }}
           NEBIUS_PROJECT_ID: ${{ vars.NEBIUS_PROJECT_ID }}
+          NEBIUS_FALLBACKS: ${{ vars.NEBIUS_FALLBACKS }}
           TARGET_RUN_ID: ${{ github.event.workflow_run.id }}
           TARGET_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: |
@@ -50,4 +51,5 @@ jobs:
           NEBIUS_CREDENTIALS_JSON: ${{ secrets.NEBIUS_CREDENTIALS_JSON }}
           GH_RUNNER_TOKEN: ${{ secrets.GH_RUNNER_TOKEN }}
           NEBIUS_PROJECT_ID: ${{ vars.NEBIUS_PROJECT_ID }}
+          NEBIUS_FALLBACKS: ${{ vars.NEBIUS_FALLBACKS }}
         run: python3 ci/nebius/runner.py reap
