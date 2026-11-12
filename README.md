@@ -43,6 +43,8 @@ Install from PyPI using pip:
 pip install solwa
 ```
 
+For the latest nightly build of `main`, use `pip install --pre solwa`.
+
 Alternatively, install from source by cloning this repository and running:
 
 ```bash

@@ -39,6 +39,25 @@
 4. The `publish.yml` workflow will build and upload to PyPI
    automatically.
 
+5. **Bump main to the next version** right after the release
+   (e.g. `0.3.0rc1` → `0.3.0rc2`, `0.3.0` → `0.4.0`), same two files as in step 1.
+   Nightlies are published as `<version on main>.devYYYYMMDDHHMM`, which pip only
+   sorts after the last release if main is already on the next version. The
+   nightly fails with an error until this bump is done.
+
+## Nightly builds
+
+`publish.yml` also runs every night at 02:00 UTC (and on demand via
+*Actions → Publish to PyPI → Run workflow*). If main has new commits from the
+last 25 hours, it runs the CPU tests and uploads a dev build such as
+`0.3.0rc2.dev202611120200` to PyPI. Users get it with:
+
+```bash
+pip install --pre solwa
+```
+
+A plain `pip install solwa` keeps installing the latest release.
+
 ## Local testing
 
 ```bash

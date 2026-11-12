@@ -349,7 +349,8 @@ class rcwa:
         self.layer_N += 1
         self.thickness.append(thickness)
 
-        if is_eps_homogenous and is_mu_homogenous:
+        self._layer_is_homogeneous = is_eps_homogenous and is_mu_homogenous
+        if self._layer_is_homogeneous:
             self._eigen_decomposition_homogenous(eps, mu)
         elif not is_eps_homogenous and self.factorization == "li":
             self._eigen_decomposition(*self._material_conv_li(eps))
@@ -2247,8 +2248,18 @@ class rcwa:
             )
         )
 
+        def _solve_H():
+            H, info = torch.linalg.solve_ex(
+                self.P[-1], self.E_eigvec[-1] * self.kz_norm[-1][..., None, :]
+            )
+            if torch.any(info != 0):
+                self._raise_singular_P(info)
+            return H
+
         if self.avoid_Pinv_instability:
-            Pinv_tmp = torch.linalg.inv(self.P[-1])
+            Pinv_tmp, info = torch.linalg.inv_ex(self.P[-1])
+            if torch.any(info != 0):
+                self._raise_singular_P(info)
             eye = torch.eye(
                 self.P[-1].shape[-1], dtype=self.P[-1].dtype, device=self.P[-1].device
             )
@@ -2271,11 +2282,7 @@ class rcwa:
             self.Qinv_instability.append(Qinv_ins)
 
             if self.Pinv_instability[-1] < self.max_Pinv_instability:
-                self.H_eigvec.append(
-                    torch.linalg.solve(
-                        self.P[-1], self.E_eigvec[-1] * self.kz_norm[-1][..., None, :]
-                    )
-                )
+                self.H_eigvec.append(_solve_H())
             else:
                 self.H_eigvec.append(
                     torch.matmul(
@@ -2284,11 +2291,7 @@ class rcwa:
                     )
                 )
         else:
-            self.H_eigvec.append(
-                torch.linalg.solve(
-                    self.P[-1], self.E_eigvec[-1] * self.kz_norm[-1][..., None, :]
-                )
-            )
+            self.H_eigvec.append(_solve_H())
 
         Ctmp1 = _vcat(
             (
@@ -2381,6 +2384,38 @@ class rcwa:
                 torch.matmul(self.E_eigvec[-1], phase),
                 self.Cb[-1][..., 2 * self.order_N :, :],
             )
+        )
+
+    def _raise_singular_P(self, info):
+        # P (H to E) is singular when a mode has kz = 0 in this layer. In a
+        # homogeneous layer the modes are the diffraction orders, so this is a
+        # Rayleigh anomaly; patterned-layer eigenvalues are in solver order.
+        bad = torch.nonzero(info != 0).flatten().tolist() or [0]
+        wl = (1 / self.freq.real).reshape(-1).tolist()
+        wl_txt = ", ".join(
+            f"{wl[b]:g}" + (f" (batch index {b})" if self.freq.dim() > 0 else "")
+            for b in bad
+        )
+        kz = torch.abs(self.kz_norm[-1]).reshape(-1, 2 * self.order_N)[bad[0]]
+        if self._layer_is_homogeneous:
+            i = int(torch.argmin(kz[: self.order_N]))
+            ny = len(self.order_y)
+            order = (int(self.order_x[i // ny]), int(self.order_y[i % ny]))
+            where = f"min |kz| = {float(kz[i]):.2e} for order {order}"
+            cause = (
+                "that diffraction order lies exactly on a Rayleigh anomaly of "
+                "this layer (kz = 0, e.g. n * period / wavelength is an integer "
+                "at normal incidence)"
+            )
+        else:
+            i = int(torch.argmin(kz))
+            where = f"min |kz| = {float(kz[i]):.2e} for eigenmode {i}"
+            cause = "an eigenmode of this patterned layer has kz close to 0"
+        raise torch.linalg.LinAlgError(
+            f"Layer {self.layer_N - 1}: the H-to-E matrix P is singular at "
+            f"wavelength {wl_txt} ({where}). Likely cause: {cause}. Shift the "
+            "wavelength or angle slightly, or give the layer permittivity a "
+            "small imaginary part."
         )
 
     def _RS_prod(self, Sm, Sn, Cm, Cn):

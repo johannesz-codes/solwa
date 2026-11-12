@@ -20,4 +20,4 @@ from .rcwa import rcwa as rcwa
 from . import materials as materials
 
 __author__ = """Johannes Zeiser"""
-__version__ = "0.3.0rc1"
+__version__ = "0.3.0rc2"
