@@ -249,6 +249,14 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(r.targets()[1]['platform'], 'gpu-l40s-d')  # default fallback
         with patch.dict(os.environ, {'NEBIUS_FALLBACKS': '{"platform": "x"}'}), self.assertRaises(r.CIError):
             r.targets()
+        # An unreachable fallback project still lets the primary one be cleaned.
+        cloud = FakeCloud([resource('instance')])
+        listing = cloud.resources
+        cloud.resources = lambda kind, project=None: (
+            listing(kind, project) if project != 'down' else (_ for _ in ()).throw(r.CIError('outage')))
+        with self.assertRaisesRegex(r.CIError, 'down: outage'):
+            r.cleanup(cloud, FakeGitHub(), name=NAME, projects=['project-test', 'down'])
+        self.assertFalse(cloud.data['instance'])
 
     def test_no_start_while_reconciling(self):
         cloud, github = FakeCloud(states=['STOPPED']), FakeGitHub()
