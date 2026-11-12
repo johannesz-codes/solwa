@@ -45,6 +45,7 @@ jobs:
           NEBIUS_CREDENTIALS_JSON: ${{ secrets.NEBIUS_CREDENTIALS_JSON }}
           GH_RUNNER_TOKEN: ${{ secrets.GH_RUNNER_TOKEN }}
           NEBIUS_PROJECT_ID: ${{ vars.NEBIUS_PROJECT_ID }}
+          NEBIUS_FALLBACKS: ${{ vars.NEBIUS_FALLBACKS }}
           NEBIUS_SUBNET_ID: ${{ vars.NEBIUS_SUBNET_ID }}
           NEBIUS_PRESET: ${{ vars.NEBIUS_PRESET }}
         run: python3 ci/nebius/runner.py check
@@ -56,6 +57,7 @@ jobs:
           NEBIUS_CREDENTIALS_JSON: ${{ secrets.NEBIUS_CREDENTIALS_JSON }}
           GH_RUNNER_TOKEN: ${{ secrets.GH_RUNNER_TOKEN }}
           NEBIUS_PROJECT_ID: ${{ vars.NEBIUS_PROJECT_ID }}
+          NEBIUS_FALLBACKS: ${{ vars.NEBIUS_FALLBACKS }}
           NEBIUS_SUBNET_ID: ${{ vars.NEBIUS_SUBNET_ID }}
           NEBIUS_PLATFORM: ${{ vars.NEBIUS_PLATFORM }}
           NEBIUS_PRESET: ${{ vars.NEBIUS_PRESET }}
@@ -136,4 +138,5 @@ jobs:
           NEBIUS_CREDENTIALS_JSON: ${{ secrets.NEBIUS_CREDENTIALS_JSON }}
           GH_RUNNER_TOKEN: ${{ secrets.GH_RUNNER_TOKEN }}
           NEBIUS_PROJECT_ID: ${{ vars.NEBIUS_PROJECT_ID }}
+          NEBIUS_FALLBACKS: ${{ vars.NEBIUS_FALLBACKS }}
         run: python3 ci/nebius/runner.py cleanup

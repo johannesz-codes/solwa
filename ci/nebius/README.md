@@ -89,6 +89,30 @@ passed as `GH_RUNNER_TOKEN`; token minting is not part of this initial version.
 | `NEBIUS_PLATFORM` | `gpu-l40s-a` | L40S / `eu-north1` |
 | `NEBIUS_PRESET` | `1gpu-8vcpu-32gb` | Only `1gpu-*` accepted |
 | `NEBIUS_IMAGE_FAMILY` | `ubuntu24.04-cuda13.0` | Must provide Ubuntu 24.04 and working NVIDIA drivers |
+| `NEBIUS_FALLBACKS` | `[{"platform": "gpu-l40s-d", "preset": "1gpu-16vcpu-96gb"}]` | Repository variable; see below. `[]` disables fallback |
+
+### Capacity fallback
+
+Without free capacity on a platform, each start fails after ~6 min with
+`NotEnoughResources`. After 3 such failures (`SWITCH_AFTER` in `runner.py`, ~18
+min) `provision` deletes that VM and creates one on the next target. Targets are
+the variables above followed by the `NEBIUS_FALLBACKS` list. The chain repeats
+until the 60-minute readiness timeout. Each entry needs `platform` and `preset`.
+`project_id`, `subnet_id` and `image_family` default to the primary values, so a
+target in another region needs its own project and subnet:
+
+```json
+[{"platform": "gpu-l40s-d", "preset": "1gpu-16vcpu-96gb"},
+ {"platform": "gpu-rtx6000-a", "preset": "1gpu-24vcpu-218gb",
+  "project_id": "EU_SOUTH1_PROJECT_ID", "subnet_id": "EU_SOUTH1_SUBNET_ID"}]
+```
+
+Cleanup and the reaper scan every distinct project in the chain. Keep a project
+in `NEBIUS_FALLBACKS` until no CI resources are left in it. For each additional
+project, the CI service account needs the same Compute and subnet permissions as
+in step 1, that project needs GPU quota for the platform, and the image family
+must exist in its region (check with `nebius compute image get-latest-by-family
+--image-family ubuntu24.04-cuda13.0` from a CLI profile for that project).
 
 Boot disk size is 80 GiB. It is managed by the VM and is deleted with it. Public
 IPv4 is dynamically allocated for outbound access and is released with the VM.
@@ -152,7 +176,8 @@ runner until GitHub gives up (24 h). A full re-run provisions a fresh VM.
 
 One workflow at a time is allowed; additional runs wait (GitHub may replace an
 older pending run). Provisioning also refuses to create another VM while an
-owned CI VM exists. No automatic capacity retry can allocate additional GPUs.
+owned CI VM exists in any project of the chain. A capacity fallback deletes the
+previous VM before it creates the next, so at most one GPU is requested at a time.
 
 Resources are labeled with repository identity, run ID/attempt, and a **150-minute
 expiry**. Normal cleanup runs even after test/provision failures. A separate
