@@ -26,7 +26,7 @@ class Eig(torch.autograd.Function):
     broadening_parameter = 1e-10
 
     @staticmethod
-    def forward(ctx, x):
+    def forward(ctx, x, offload_device=None):
         """
         Forward pass: compute eigenvalues and eigenvectors.
 
@@ -36,6 +36,9 @@ class Eig(torch.autograd.Function):
             PyTorch context for saving variables for backward pass.
         x : torch.Tensor
             Input square matrix for eigendecomposition.
+        offload_device : torch.device or None, optional
+            Where to keep the eigenpairs until the backward pass. Default is
+            None (the device of ``x``).
 
         Returns
         -------
@@ -44,8 +47,11 @@ class Eig(torch.autograd.Function):
         """
         ctx.input = x
         eigval, eigvec = torch.linalg.eig(x)
-        ctx.eigval = eigval.cpu()
-        ctx.eigvec = eigvec.cpu()
+        # Never store the outputs themselves: that would be a reference cycle.
+        ctx.eigval, ctx.eigvec = eigval.detach(), eigvec.detach()
+        if offload_device is not None:
+            ctx.eigval = ctx.eigval.to(offload_device)
+            ctx.eigvec = ctx.eigvec.to(offload_device)
         return eigval, eigvec
 
     @staticmethod
@@ -95,4 +101,4 @@ class Eig(torch.autograd.Function):
         if not torch.is_complex(ctx.input):
             grad = torch.real(grad)
 
-        return grad
+        return grad, None  # no gradient for offload_device

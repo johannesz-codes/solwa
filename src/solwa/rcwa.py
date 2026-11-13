@@ -107,7 +107,8 @@ class rcwa:
             layer tensors are automatically moved to this device after each layer is added
             and brought back to the compute device on demand. Typical use is
             ``offload_device=torch.device('cpu')`` to keep GPU memory usage low when
-            simulating many layers. Default is None (offloading disabled).
+            simulating many layers. The eigenpairs kept for the backward pass of
+            ``stable_eig_grad`` go there as well. Default is None (offloading disabled).
         stable_eig_grad : bool, optional
             Stabilize gradient calculation of eigendecomposition. Default is True.
         avoid_Pinv_instability : bool, optional
@@ -2235,7 +2236,7 @@ class rcwa:
                 self.P[-1].to(self._eig_dtype), self.Q[-1].to(self._eig_dtype)
             )
         if self.stable_eig_grad is True:
-            kz_norm, E_eigvec = Eig.apply(PQ)
+            kz_norm, E_eigvec = Eig.apply(PQ, self._offload_device)
         else:
             kz_norm, E_eigvec = torch.linalg.eig(PQ)
 
