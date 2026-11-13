@@ -16,6 +16,11 @@ def _hcat(tensors):
     return torch.cat(tensors, dim=-1)
 
 
+def _solve_H(P, E, kz):
+    """H eigenvectors from P H = E diag(kz); returns (H, info) like solve_ex."""
+    return torch.linalg.solve_ex(P, E * kz[..., None, :])
+
+
 def _precision_io(method):
     """Cast tensor arguments to the compute precision and results back to the
     user-facing dtype when ``auto_precision`` is enabled (no-op otherwise)."""
@@ -2248,10 +2253,10 @@ class rcwa:
             )
         )
 
-        Pinv_tmp, info = torch.linalg.inv_ex(self.P[-1])
-        if torch.any(info != 0):
-            self._raise_singular_P(info)
         if self.avoid_Pinv_instability:
+            Pinv_tmp, info = torch.linalg.inv_ex(self.P[-1])
+            if torch.any(info != 0):
+                self._raise_singular_P(info)
             eye = torch.eye(
                 self.P[-1].shape[-1], dtype=self.P[-1].dtype, device=self.P[-1].device
             )
@@ -2274,9 +2279,10 @@ class rcwa:
             self.Qinv_instability.append(Qinv_ins)
 
             if self.Pinv_instability[-1] < self.max_Pinv_instability:
-                self.H_eigvec.append(
-                    torch.matmul(Pinv_tmp, torch.matmul(self.E_eigvec[-1], Kz_norm))
-                )
+                H, info = _solve_H(self.P[-1], self.E_eigvec[-1], self.kz_norm[-1])
+                if torch.any(info != 0):
+                    self._raise_singular_P(info)
+                self.H_eigvec.append(H)
             else:
                 self.H_eigvec.append(
                     torch.matmul(
@@ -2285,9 +2291,10 @@ class rcwa:
                     )
                 )
         else:
-            self.H_eigvec.append(
-                torch.matmul(Pinv_tmp, torch.matmul(self.E_eigvec[-1], Kz_norm))
-            )
+            H, info = _solve_H(self.P[-1], self.E_eigvec[-1], self.kz_norm[-1])
+            if torch.any(info != 0):
+                self._raise_singular_P(info)
+            self.H_eigvec.append(H)
 
         Ctmp1 = _vcat(
             (
