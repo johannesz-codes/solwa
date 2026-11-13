@@ -36,14 +36,15 @@ class FakeCloud:
     def operations(self, instance_id):
         return list(self.ops)
 
-    def resources(self, kind):
+    def resources(self, kind, project=None):
         if kind == 'instance' and self.states:
             state = self.states.pop(0) if len(self.states) > 1 else self.states[0]
             for vm in self.data['instance']:
                 vm['status'] = {'state': state, 'reconciling': getattr(self, 'reconciling', False)}
-        return iter(list(self.data[kind]))
+        return iter([x for x in self.data[kind]
+                     if (x['metadata'].get('parent_id') or self.project) == (project or self.project)])
 
-    def delete(self, kind, resource_id):
+    def delete(self, kind, resource_id, project=None):
         if self.fail_delete:
             raise r.CIError('Deletion failed')
         self.deleted.append((kind, resource_id))
@@ -227,6 +228,35 @@ class LifecycleTests(unittest.TestCase):
         cloud.ops = [{'id': 'create', 'description': 'Create Instance'}]
         self._provision_with_fake_clock(cloud, github, ready_timeout=600)
         self.assertNotIn(('compute', 'instance', 'start'), cloud.calls)
+
+    def test_out_of_capacity_falls_back_through_the_chain_and_cleans_all_projects(self):
+        cloud, github = FakeCloud(states=['STOPPED']), FakeGitHub()
+        cloud.ops = [{'id': 'op', 'finished_at': 't', 'status': {'details': [{'code': 'NotEnoughResources'}]}}]
+        ids = iter(range(100))  # every start fails with a fresh operation
+        cloud.operations = lambda vm_id: [dict(cloud.ops[0], id=next(ids))]
+        fallbacks = '[{"platform": "gpu-rtx6000-a", "preset": "1gpu-24vcpu-218gb", "project_id": "p2"}]'
+        with patch.dict(os.environ, {'NEBIUS_FALLBACKS': fallbacks}):
+            self.assertEqual([(t['platform'], t['project_id'], t['subnet_id']) for t in r.targets()],
+                             [('gpu-l40s-a', '', ''), ('gpu-rtx6000-a', 'p2', '')])
+            # Each fake start fails at once, 30 s apart: a switch every 60 s.
+            error, out = self._provision_with_fake_clock(cloud, github, ready_timeout=120)
+        self.assertEqual(cloud.calls.count(('compute', 'instance', 'create')), 2)
+        self.assertEqual(cloud.calls.count(('compute', 'instance', 'start')), 2 * (r.SWITCH_AFTER - 1))
+        self.assertEqual(out.count('trying the next target'), 1)
+        self.assertIn('-2 on gpu-rtx6000-a / 1gpu-24vcpu-218gb in p2', out)
+        self.assertEqual(cloud.payload['metadata']['parent_id'], 'p2')
+        self.assertFalse(cloud.data['instance'])  # both VMs gone, the p2 one via cleanup
+        self.assertEqual(r.targets()[1]['platform'], 'gpu-l40s-d')  # default fallback
+        with patch.dict(os.environ, {'NEBIUS_FALLBACKS': '{"platform": "x"}'}), self.assertRaises(r.CIError):
+            r.targets()
+        # An unreachable fallback project still lets the primary one be cleaned.
+        cloud = FakeCloud([resource('instance')])
+        listing = cloud.resources
+        cloud.resources = lambda kind, project=None: (
+            listing(kind, project) if project != 'down' else (_ for _ in ()).throw(r.CIError('outage')))
+        with self.assertRaisesRegex(r.CIError, 'down: outage'):
+            r.cleanup(cloud, FakeGitHub(), name=NAME, projects=['project-test', 'down'])
+        self.assertFalse(cloud.data['instance'])
 
     def test_no_start_while_reconciling(self):
         cloud, github = FakeCloud(states=['STOPPED']), FakeGitHub()

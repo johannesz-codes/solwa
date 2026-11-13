@@ -166,10 +166,10 @@ class Nebius:
             except ValueError:
                 raise CIError(f"Nebius {' '.join(args[:3])} returned non-JSON output") from None
 
-    def resources(self, kind):
+    def resources(self, kind, project=None):
         page = ""
         while True:
-            response = self.call("compute", kind, "list", "--parent-id", self.project,
+            response = self.call("compute", kind, "list", "--parent-id", project or self.project,
                                  "--page-size", "100", "--page-token", page)
             yield from response.get("items", [])
             page = response.get("next_page_token", "")
@@ -181,13 +181,13 @@ class Nebius:
                              "--resource-id", instance_id, "--page-size", "20")
         return response.get("operations", [])
 
-    def delete(self, kind, resource_id):
+    def delete(self, kind, resource_id, project=None):
         # Reconcile from a fresh list; tolerate a concurrent reaper deletion only
         # after confirming the resource has disappeared.
         try:
             self.call("compute", kind, "delete", "--id", resource_id, parse=False)
         except CIError:
-            if any(r["metadata"]["id"] == resource_id for r in self.resources(kind)):
+            if any(r["metadata"]["id"] == resource_id for r in self.resources(kind, project)):
                 raise
 
 
@@ -210,16 +210,17 @@ def cloud_init(repo, name, jit):
     return "#cloud-config\n" + json.dumps(config)
 
 
-def instance_spec(project, subnet, platform, preset, image, repo, name, jit, now):
+def instance_spec(project, subnet, platform, preset, image, repo, name, jit, now, vm_name=None):
     if not preset.startswith("1gpu-"):
         raise CIError("GPU CI currently requires a 1gpu-* preset")
     labels = resource_labels(repo, name, now)
+    vm_name = vm_name or name
     return {
-        "metadata": {"parent_id": project, "name": name, "labels": labels},
+        "metadata": {"parent_id": project, "name": vm_name, "labels": labels},
         "spec": {
             "resources": {"platform": platform, "preset": preset},
             "boot_disk": {"attach_mode": "READ_WRITE", "managed_disk": {
-                "name": name + "-boot", "labels": labels,
+                "name": vm_name + "-boot", "labels": labels,
                 "spec": {"type": "NETWORK_SSD", "size_gibibytes": 80,
                          "source_image_family": {"image_family": image}}}},
             "network_interfaces": [{"name": "eth0", "subnet_id": subnet,
@@ -227,6 +228,23 @@ def instance_spec(project, subnet, platform, preset, image, repo, name, jit, now
             "cloud_init_user_data": cloud_init(repo, name, jit),
         },
     }
+
+
+def targets():
+    """Ordered (platform, preset, project, subnet, image) chain to provision from.
+
+    The first target comes from the NEBIUS_* variables; NEBIUS_FALLBACKS (JSON
+    list of objects) adds more, each defaulting to the first target's values."""
+    primary = {"platform": os.environ.get("NEBIUS_PLATFORM") or "gpu-l40s-a",
+               "preset": os.environ.get("NEBIUS_PRESET") or "1gpu-8vcpu-32gb",
+               "project_id": os.environ.get("NEBIUS_PROJECT_ID", "").strip(),
+               "subnet_id": os.environ.get("NEBIUS_SUBNET_ID", "").strip(),
+               "image_family": os.environ.get("NEBIUS_IMAGE_FAMILY") or "ubuntu24.04-cuda13.0"}
+    try:
+        extra = json.loads(os.environ.get("NEBIUS_FALLBACKS") or DEFAULT_FALLBACKS)
+        return [primary] + [{**primary, **target} for target in extra]
+    except (ValueError, TypeError):
+        raise CIError("NEBIUS_FALLBACKS must be a JSON list of objects; see ci/nebius/README.md") from None
 
 
 def preflight(provision=True):
@@ -242,10 +260,9 @@ def preflight(provision=True):
             raise ValueError()
     except ValueError:
         raise CIError("NEBIUS_CREDENTIALS_JSON must contain the generated credentials JSON") from None
-    if provision:
-        preset = os.environ.get("NEBIUS_PRESET") or "1gpu-8vcpu-32gb"
-        if not preset.startswith("1gpu-"):
-            raise CIError("GPU CI currently requires a 1gpu-* preset")
+    chain = targets()
+    if provision and not all(str(t["preset"]).startswith("1gpu-") for t in chain):
+        raise CIError("GPU CI currently requires a 1gpu-* preset")
 
 
 # Waiting for capacity is not a failure: Nebius may need several start attempts
@@ -258,10 +275,14 @@ FAILED_STATES = {"STOPPED", "ERROR"}
 # A new start aborts any operation still in flight (even the create itself),
 # so starts are also spaced out as a guard against stale status.
 NUDGE_GAP = 30
+# After this many NotEnoughResources start failures (~18 min) the VM is deleted
+# and the next target of the chain is tried; the chain repeats until timeout.
+SWITCH_AFTER = 3
+DEFAULT_FALLBACKS = '[{"platform": "gpu-l40s-d", "preset": "1gpu-16vcpu-96gb"}]'
 
 
-def vm_state(cloud, name):
-    for vm in cloud.resources("instance"):
+def vm_state(cloud, name, project):
+    for vm in cloud.resources("instance", project):
         if vm.get("metadata", {}).get("name") == name:
             status = vm.get("status") or {}
             return (vm["metadata"].get("id"), status.get("state") or "UNKNOWN",
@@ -311,9 +332,11 @@ def provision(cloud, github, ref, run_id, attempt, ready_timeout=READY_TIMEOUT,
               poll=10, clock=time.monotonic, sleep=time.sleep):
     name = run_name(github.repo, run_id, attempt)
     sha = github.resolve(ref)
+    chain = targets()
+    projects = list(dict.fromkeys(t["project_id"] for t in chain))
     # Reconcile before acquiring new capacity. A stale or failed earlier run
     # must not silently permit an extra GPU despite workflow concurrency.
-    existing = [r for r in cloud.resources("instance") if owned(r, github.repo)]
+    existing = [r for p in projects for r in cloud.resources("instance", p) if owned(r, github.repo)]
     if existing:
         raise CIError("An existing SOLWA CI VM remains; run GPU cleanup before provisioning")
     jit_response = github.request("POST", "actions/runners/generate-jitconfig", {
@@ -327,22 +350,34 @@ def provision(cloud, github, ref, run_id, attempt, ready_timeout=READY_TIMEOUT,
     start = clock()
     deadline = start + ready_timeout
     try:
-        payload = instance_spec(cloud.project, required("NEBIUS_SUBNET_ID"),
-                                os.environ.get("NEBIUS_PLATFORM") or "gpu-l40s-a",
-                                os.environ.get("NEBIUS_PRESET") or "1gpu-8vcpu-32gb",
-                                os.environ.get("NEBIUS_IMAGE_FAMILY") or "ubuntu24.04-cuda13.0",
-                                github.repo, name, jit, time.time())
-        # Async create lets us observe the runner without blocking on a long
-        # cloud operation. Resource labels exist even if the response is lost.
-        cloud.call("compute", "instance", "create", "--async", payload=payload, parse=False)
-        vm_id, state, last_state, nudges, last_nudge = None, "NOT_FOUND", None, 0, None
-        reported, last_error = set(), None
+        target, launches, vm_id, state, nudges, last_error = None, 0, None, "NOT_FOUND", 0, None
         while clock() < deadline:
             elapsed = int(clock() - start)
+            if target is None or (fails >= SWITCH_AFTER and len(chain) > 1):
+                if target is not None:
+                    print(f"[{elapsed}s] {target['platform']}: {fails} starts failed with "
+                          f"NotEnoughResources; deleting {vm} and trying the next target", flush=True)
+                    if vm_id:
+                        cloud.delete("instance", vm_id, target["project_id"])
+                target = chain[launches % len(chain)]
+                launches += 1
+                # Unique per launch; the runner name and ci-run label stay `name`.
+                vm = f"{name}-{launches}"
+                print(f"[{elapsed}s] Creating {vm} on {target['platform']} / {target['preset']} "
+                      f"in {target['project_id']} (target {(launches - 1) % len(chain) + 1}/{len(chain)})",
+                      flush=True)
+                payload = instance_spec(target["project_id"], target["subnet_id"], target["platform"],
+                                        target["preset"], target["image_family"],
+                                        github.repo, name, jit, time.time(), vm_name=vm)
+                # Async create lets us observe the runner without blocking on a long
+                # cloud operation. Resource labels exist even if the response is lost.
+                cloud.call("compute", "instance", "create", "--async", payload=payload, parse=False)
+                vm_id, state, last_state, fails, last_nudge, reported = None, "NOT_FOUND", None, 0, None, set()
             if any(r["name"] == name and r["status"] == "online" for r in github.runners()):
-                print(f"GPU runner ready after {elapsed}s: {name}; test commit {sha}", flush=True)
+                print(f"GPU runner ready after {elapsed}s on {target['platform']}: {name}; "
+                      f"test commit {sha}", flush=True)
                 return
-            vm_id, state, reconciling = vm_state(cloud, name)
+            vm_id, state, reconciling = vm_state(cloud, vm, target["project_id"])
             if state != last_state:
                 print(f"[{elapsed}s] VM state: {state}", flush=True)
                 last_state = state
@@ -360,8 +395,11 @@ def provision(cloud, github, ref, run_id, attempt, ready_timeout=READY_TIMEOUT,
                         if operation.get("status") and operation.get("id") not in reported:
                             reported.add(operation.get("id"))
                             last_error = operation_error(operation)
+                            fails += "NotEnoughResources" in last_error
                             print(f"[{elapsed}s] Nebius: {operation.get('description', 'operation')} "
                                   f"failed: {last_error}", flush=True)
+                    if fails >= SWITCH_AFTER and len(chain) > 1:
+                        continue
                     nudges += 1
                     last_nudge = clock()
                     print(f"[{elapsed}s] VM is {state}; sending start (attempt {nudges})", flush=True)
@@ -375,20 +413,21 @@ def provision(cloud, github, ref, run_id, attempt, ready_timeout=READY_TIMEOUT,
         where = ("VM never reached RUNNING" if state != "RUNNING"
                  else "VM was RUNNING but the runner never came online (bootstrap problem)")
         raise CIError(f"GPU runner not ready within {ready_timeout // 60} minutes; "
-                      f"{where}; last VM state {state}, {nudges} start attempts"
+                      f"{where}; last VM state {state}, {nudges} start attempts on {launches} VMs"
                       + (f", last Nebius error {last_error}" if last_error else ""))
     except Exception:
         # Outer workflow cleanup is also required for cancellation/SIGKILL.
         try:
-            cleanup(cloud, github, name=name)
+            cleanup(cloud, github, name=name, projects=projects)
         except CIError:
             print("::warning::Inline cleanup failed; workflow cleanup and reaper must retry")
         raise
 
 
-def cleanup(cloud, github, name=None, now=None):
+def cleanup(cloud, github, name=None, now=None, projects=None):
     """Delete only owned resources for an exact run or an expired TTL."""
     now = time.time() if now is None else now
+    projects = projects or [cloud.project]
     errors = []
     selected_names = set()
 
@@ -403,22 +442,36 @@ def cleanup(cloud, github, name=None, now=None):
         except (KeyError, ValueError):
             return False
 
-    for vm in cloud.resources("instance"):
+    unreachable = set()
+
+    def listed(kind):
+        # One unreachable project (e.g. a regional outage) must not block the others.
+        found = []
+        for project in projects:
+            try:
+                found += [(project, r) for r in cloud.resources(kind, project)]
+            except CIError as exc:
+                unreachable.add(project)
+                errors.append(f"{project}: {exc}")
+        return found
+
+    for project, vm in listed("instance"):
         if selected(vm):
             selected_names.add(vm["metadata"]["labels"]["ci-run"])
             try:
-                cloud.delete("instance", vm["metadata"]["id"])
+                cloud.delete("instance", vm["metadata"]["id"], project)
                 print(f"Deleted CI VM {vm['metadata']['name']}", flush=True)
             except CIError as exc:
                 errors.append(str(exc))
     # Managed boot disks normally disappear with their instance. Reconcile any
     # leftovers from failed creates/deletes, but never delete a live VM's disk.
     active = {r["metadata"]["labels"].get("ci-run")
-              for r in cloud.resources("instance") if owned(r, github.repo)}
-    for disk in cloud.resources("disk"):
-        if selected(disk) and disk["metadata"]["labels"].get("ci-run") not in active:
+              for _, r in listed("instance") if owned(r, github.repo)}
+    for project, disk in listed("disk"):
+        if (selected(disk) and project not in unreachable
+                and disk["metadata"]["labels"].get("ci-run") not in active):
             try:
-                cloud.delete("disk", disk["metadata"]["id"])
+                cloud.delete("disk", disk["metadata"]["id"], project)
             except CIError as exc:
                 errors.append(str(exc))
     # Exact-name cleanup also covers JIT registration followed by create failure.
@@ -460,12 +513,14 @@ def main():
     # Directory is outside the checkout and removed even on ordinary failures.
     with tempfile.TemporaryDirectory(prefix="solwa-nebius-") as directory:
         cloud = Nebius(directory, required("NEBIUS_PROJECT_ID"))
+        projects = list(dict.fromkeys(t["project_id"] for t in targets()))
         if args.command == "provision":
             provision(cloud, github, args.ref, required("GITHUB_RUN_ID"), required("GITHUB_RUN_ATTEMPT"))
         elif args.command == "cleanup":
-            cleanup(cloud, github, name=run_name(github.repo, required("GITHUB_RUN_ID"), required("GITHUB_RUN_ATTEMPT")))
+            cleanup(cloud, github, name=run_name(github.repo, required("GITHUB_RUN_ID"), required("GITHUB_RUN_ATTEMPT")),
+                    projects=projects)
         else:
-            cleanup(cloud, github)
+            cleanup(cloud, github, projects=projects)
 
 
 if __name__ == "__main__":
