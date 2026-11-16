@@ -2088,23 +2088,13 @@ class rcwa:
     def _material_conv(self, material):
         material_N = material.shape[-2] * material.shape[-1]
 
-        # Validate material grid size before any FFT or advanced indexing.
-        # The convolution matrix indexes FFT coefficients by order differences,
-        # which can reach ±(max_order - min_order) along each axis. The material
-        # grid must be large enough to support these indices via wraparound.
-        max_ix_range = 2 * int(self.order[0])
-        max_iy_range = 2 * int(self.order[1])
-        if material.shape[0] <= max_ix_range or material.shape[1] <= max_iy_range:
-            req_nx = max_ix_range + 1
-            req_ny = max_iy_range + 1
+        # Order differences reach +-2*order per axis, so the grid needs > 2*order samples;
+        # otherwise the indexing below goes out of bounds (device-side assert on CUDA).
+        nx, ny = material.shape[-2:]
+        if nx <= 2 * self.order[0] or ny <= 2 * self.order[1]:
             raise ValueError(
-                f"Inhomogeneous material grid is too small for the selected RCWA order. "
-                f"For order_x=[{int(self.order_x.min())}, ..., {int(self.order_x.max())}] and "
-                f"order_y=[{int(self.order_y.min())}, ..., {int(self.order_y.max())}], the convolution "
-                f"matrix uses index differences up to ±{max_ix_range} (x) and ±{max_iy_range} (y), so "
-                f"material.shape must be at least [{req_nx}, {req_ny}] (strictly greater than "
-                f"[{max_ix_range}, {max_iy_range}]). Got {list(material.shape)}. Increase the material grid "
-                f"size or reduce the RCWA order."
+                f"Material grid {nx}x{ny} is too small for order {list(self.order)}: "
+                f"need at least {2 * self.order[0] + 1}x{2 * self.order[1] + 1} samples."
             )
 
         # Matching indices
