@@ -435,6 +435,8 @@ def test_add_layer_accepts_int_and_complex_scalars(dtype, device):
         sim.solve_global_smatrix()
         return sim.S_parameters(orders=[[0, 0]], polarization="xx", ref_order=[0, 0])
 
-    ref = transmission(4.0, 2.0)
-    for eps, mu in [(4, 2), (4 + 0j, 2 + 0j), ([4.0], [2.0]), (torch.tensor(4.0), 2)]:
-        torch.testing.assert_close(transmission(eps, mu), ref)
+    lossless = [(4, 2), (4 + 0j, 2 + 0j), ([4.0], [2.0]), (torch.tensor(4.0), 2)]
+    absorbing = [([4 + 0.5j], 2), (torch.tensor(4 + 0.5j), 2 + 0j)]
+    for ref, variants in [((4.0, 2.0), lossless), ((4 + 0.5j, 2.0), absorbing)]:
+        for eps, mu in variants:
+            torch.testing.assert_close(transmission(eps, mu), transmission(*ref))
