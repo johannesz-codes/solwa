@@ -76,3 +76,7 @@ def test_avoid_Pinv_instability(dtype, device):
     torch.testing.assert_close(S_guard, S, rtol=0, atol=0)
     grads = [torch.autograd.grad((s.abs() ** 2).sum(), radius)[0] for s in (S_guard, S)]
     torch.testing.assert_close(*grads, rtol=0, atol=0)
+    # threshold 0 forces the Q-based fallback H = Q E Kz^-1 (== P^-1 E Kz)
+    S_q = _run(*args, avoid_Pinv_instability=True, max_Pinv_instability=0.0)
+    tol = 1e-4 if dtype == torch.complex64 else 1e-10
+    torch.testing.assert_close(S_q, S, rtol=tol, atol=tol)
