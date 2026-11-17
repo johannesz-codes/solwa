@@ -61,6 +61,9 @@ class Eig(torch.autograd.Function):
 
         Uses Lorentzian broadening to stabilize gradients near degenerate
         eigenvalues, reducing numerical instability in the gradient computation.
+        The broadening biases the coupling of eigenvalues closer than about
+        sqrt(broadening_parameter) and drops it for exactly degenerate ones,
+        so gradients that split a degeneracy are inaccurate (#91).
 
         Parameters
         ----------
