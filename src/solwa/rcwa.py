@@ -2088,6 +2088,15 @@ class rcwa:
     def _material_conv(self, material):
         material_N = material.shape[-2] * material.shape[-1]
 
+        # Order differences reach +-2*order per axis, so the grid needs > 2*order samples;
+        # otherwise the indexing below goes out of bounds (device-side assert on CUDA).
+        nx, ny = material.shape[-2:]
+        if nx <= 2 * self.order[0] or ny <= 2 * self.order[1]:
+            raise ValueError(
+                f"Material grid {nx}x{ny} is too small for order {list(self.order)}: "
+                f"need at least {2 * self.order[0] + 1}x{2 * self.order[1] + 1} samples."
+            )
+
         # Matching indices
         order_x_grid, order_y_grid = torch.meshgrid(
             self.order_x, self.order_y, indexing="ij"
