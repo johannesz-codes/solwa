@@ -138,10 +138,11 @@ No persistent IP, SSH key, data volume, or cloud service account is attached.
 
 ## Tests and versions
 
-The GPU `test` job installs pinned Python packages (before checking out code):
-PyTorch 2.7.1 / cu128, NumPy 2.2.6, SciPy 1.15.3, pytest 8.3.5, using a pinned
-`uv` (0.12.24) for faster downloads. The NVIDIA driver
-comes from the CUDA 13.0 image and can run the older cu128 wheel. CPU CI continues
+The GPU `test` job installs the latest PyPI releases of PyTorch, NumPy, SciPy
+and pytest (before checking out code), using a pinned `uv` (0.12.24) for faster
+downloads; the versions are printed in the log. The default PyTorch wheel ships
+CUDA 13.x, which the CUDA 13.0 image driver runs; a future CUDA 14 default needs
+a newer `NEBIUS_IMAGE_FAMILY`. CPU CI continues
 to exercise the normal package dependency range separately.
 
 The runner download is pinned to 2.337.0 and SHA-256 checked. Automatic GitHub
