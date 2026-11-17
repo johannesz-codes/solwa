@@ -2284,6 +2284,7 @@ class rcwa:
             )
         else:
             E_inv, K, Phi = self._layer_mf
+            del self._layer_mf  # only needed for this layer
 
         use_Q = False
         if self.avoid_Pinv_instability:
