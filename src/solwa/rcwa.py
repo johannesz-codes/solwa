@@ -181,12 +181,10 @@ class rcwa:
             self.avoid_Pinv_instability = True
             self.max_Pinv_instability = max_Pinv_instability
             self.Pinv_instability = []
-            self.Qinv_instability = []
         else:
             self.avoid_Pinv_instability = False
             self.max_Pinv_instability = None
             self.Pinv_instability = None
-            self.Qinv_instability = None
 
         # Simulation parameters (tensor inputs follow the compute precision)
         freq = self._cast(freq, self._dtype)
@@ -2274,17 +2272,7 @@ class rcwa:
             Pinv_ins_tmp2 = torch.max(
                 torch.abs(torch.matmul(Pinv_tmp.detach(), self.P[-1].detach()) - eye)
             )
-            Qinv_ins = torch.max(
-                torch.abs(
-                    torch.matmul(
-                        self.Q[-1].detach(), torch.linalg.inv(self.Q[-1].detach())
-                    )
-                    - eye
-                )
-            )
-
             self.Pinv_instability.append(torch.maximum(Pinv_ins_tmp1, Pinv_ins_tmp2))
-            self.Qinv_instability.append(Qinv_ins)
 
             if self.Pinv_instability[-1] < self.max_Pinv_instability:
                 H, info = _solve_H(self.P[-1], self.E_eigvec[-1], self.kz_norm[-1])
