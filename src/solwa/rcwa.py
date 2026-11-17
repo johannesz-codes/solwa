@@ -111,6 +111,11 @@ class rcwa:
             ``stable_eig_grad`` go there as well. Default is None (offloading disabled).
         stable_eig_grad : bool, optional
             Stabilize gradient calculation of eigendecomposition. Default is True.
+            Known limitation (#91): at exactly or nearly degenerate modes, e.g.
+            C4-symmetric patterns at normal incidence or homogeneous layers
+            given as tensors, gradients in symmetry-breaking directions (such
+            as per-pixel permittivities) are inaccurate in every precision.
+            Symmetry-preserving gradients are not affected.
         avoid_Pinv_instability : bool, optional
             Avoid instability of P inverse (P: H to E field transformation). Default is False.
         max_Pinv_instability : float, optional

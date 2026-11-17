@@ -92,6 +92,14 @@ freq = 1 / torch.tensor([500.0, 620.0, 780.0])
 sim = solwa.rcwa(freq=freq, order=[10, 10], L=[400, 400])
 ```
 
+**Known limitation ([#91](https://github.com/johannesz-codes/solwa/issues/91)):**
+gradients are inaccurate at degenerate modes, i.e. for C4-symmetric patterns
+(squares, centered circles) at normal incidence and for homogeneous layers given
+as tensors, in directions that break the symmetry (e.g. per-pixel permittivities
+in topology optimization). Symmetry-preserving gradients, such as the radius of
+a centered circle, are fine. Breaking the symmetry of the starting design or a
+slightly oblique incidence avoids the degeneracy.
+
 <br/>
 
 Material Handling
