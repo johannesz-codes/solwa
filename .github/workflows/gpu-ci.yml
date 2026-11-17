@@ -74,18 +74,16 @@ jobs:
     steps:
       - name: Show GPU
         run: nvidia-smi
-      # Pinned, and installed before any checkout of the code under test.
-      # uv (pinned) resolves and downloads in parallel; same pins and indexes as pip.
-      - name: Install pinned GPU test dependencies
+      # Latest PyPI releases (torch wheel ships CUDA 13.x), installed before any
+      # checkout of the code under test. uv (pinned) downloads in parallel.
+      - name: Install GPU test dependencies
         env:
           VENV: /home/runner/venv
         run: |
           python3 -m venv "$VENV"
           "$VENV/bin/pip" install --disable-pip-version-check uv==0.12.24
           "$VENV/bin/uv" pip install --python "$VENV/bin/python" \
-            torch==2.7.1 --index-url https://download.pytorch.org/whl/cu128
-          "$VENV/bin/uv" pip install --python "$VENV/bin/python" \
-            numpy==2.2.6 scipy==1.15.3 pytest==8.3.5 setuptools==80.9.0 wheel==0.45.1
+            torch numpy scipy pytest setuptools wheel
       - name: Verify CUDA and record the environment
         run: |
           /home/runner/venv/bin/python - <<'PY'
