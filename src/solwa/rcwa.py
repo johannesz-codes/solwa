@@ -331,12 +331,10 @@ class rcwa:
             material or a tensor for inhomogeneous material. Default is 1.0.
         """
 
-        is_eps_homogenous = (
-            isinstance(eps, float) or isinstance(eps, complex) or (eps.dim() <= 1)
-        )
-        is_mu_homogenous = (
-            isinstance(mu, float) or isinstance(mu, float) or (mu.dim() <= 1)
-        )
+        eps = torch.as_tensor(eps, dtype=self._dtype, device=self._device)
+        mu = torch.as_tensor(mu, dtype=self._dtype, device=self._device)
+        is_eps_homogenous = eps.dim() <= 1
+        is_mu_homogenous = mu.dim() <= 1
 
         self.eps_conv.append(
             self._bc(eps, 2)
@@ -1140,8 +1138,8 @@ class rcwa:
                 if layer_num[zi] == -1:
                     z_prop = z_axis[zi] if z_axis[zi] <= 0.0 else 0.0
                     if layer_num[zi] != prev_layer_num:
-                        eps = self.eps_in if hasattr(self, "eps_in") else 1.0
-                        mu = self.mu_in if hasattr(self, "mu_in") else 1.0
+                        eps = self.eps_in
+                        mu = self.mu_in
                         Vi = self.Vi if hasattr(self, "Vi") else self.Vf
                         Kz_norm_dn = torch.sqrt(
                             eps * mu - Kx_norm_dn**2 - Ky_norm_dn**2
@@ -1160,8 +1158,8 @@ class rcwa:
                             z_axis[zi] - zp[-1] if z_axis[zi] - zp[-1] >= 0.0 else 0.0
                         )
                     if layer_num[zi] != prev_layer_num:
-                        eps = self.eps_out if hasattr(self, "eps_in") else 1.0
-                        mu = self.mu_out if hasattr(self, "mu_in") else 1.0
+                        eps = self.eps_out
+                        mu = self.mu_out
                         Vo = self.Vo if hasattr(self, "Vo") else self.Vf
                         Kz_norm_dn = torch.sqrt(
                             eps * mu - Kx_norm_dn**2 - Ky_norm_dn**2
@@ -1386,8 +1384,8 @@ class rcwa:
                 if layer_num[zi] == -1:
                     z_prop = z_axis[zi] if z_axis[zi] <= 0.0 else 0.0
                     if layer_num[zi] != prev_layer_num:
-                        eps = self.eps_in if hasattr(self, "eps_in") else 1.0
-                        mu = self.mu_in if hasattr(self, "mu_in") else 1.0
+                        eps = self.eps_in
+                        mu = self.mu_in
                         Vi = self.Vi if hasattr(self, "Vi") else self.Vf
                         Kz_norm_dn = torch.sqrt(
                             eps * mu - Kx_norm_dn**2 - Ky_norm_dn**2
@@ -1406,8 +1404,8 @@ class rcwa:
                             z_axis[zi] - zp[-1] if z_axis[zi] - zp[-1] >= 0.0 else 0.0
                         )
                     if layer_num[zi] != prev_layer_num:
-                        eps = self.eps_out if hasattr(self, "eps_in") else 1.0
-                        mu = self.mu_out if hasattr(self, "mu_in") else 1.0
+                        eps = self.eps_out
+                        mu = self.mu_out
                         Vo = self.Vo if hasattr(self, "Vo") else self.Vf
                         Kz_norm_dn = torch.sqrt(
                             eps * mu - Kx_norm_dn**2 - Ky_norm_dn**2
@@ -1631,8 +1629,8 @@ class rcwa:
 
             if layer_num == -1:
                 z_prop = z_prop if z_prop <= 0.0 else 0.0
-                eps = self.eps_in if hasattr(self, "eps_in") else 1.0
-                mu = self.mu_in if hasattr(self, "mu_in") else 1.0
+                eps = self.eps_in
+                mu = self.mu_in
                 Vi = self.Vi if hasattr(self, "Vi") else self.Vf
                 Kz_norm_dn = torch.sqrt(eps * mu - Kx_norm_dn**2 - Ky_norm_dn**2)
                 Kz_norm_dn = torch.where(
@@ -1640,8 +1638,8 @@ class rcwa:
                 ).reshape([-1, 1])
             elif layer_num == self.layer_N:
                 z_prop = z_prop if z_prop >= 0.0 else 0.0
-                eps = self.eps_out if hasattr(self, "eps_in") else 1.0
-                mu = self.mu_out if hasattr(self, "mu_in") else 1.0
+                eps = self.eps_out
+                mu = self.mu_out
                 Vo = self.Vo if hasattr(self, "Vo") else self.Vf
                 Kz_norm_dn = torch.sqrt(eps * mu - Kx_norm_dn**2 - Ky_norm_dn**2)
                 Kz_norm_dn = torch.where(

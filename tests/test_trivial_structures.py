@@ -420,3 +420,23 @@ def test_singular_P_at_layer_rayleigh_anomaly_raises_clear_error():
         torch.linalg.LinAlgError, match=r"Layer 0.*batch index 1.*Rayleigh"
     ):
         sim.add_layer(thickness=100.0, eps=1.0)
+
+
+@pytest.mark.parametrize("dtype", [torch.complex64, torch.complex128])
+def test_add_layer_accepts_int_and_complex_scalars(dtype, device):
+    """Homogeneous eps/mu as int, float, complex, list or tensor agree (#73)."""
+
+    def transmission(eps, mu):
+        sim = solwa.rcwa(
+            freq=1 / LAMBDA, order=[2, 2], L=[300.0, 300.0], dtype=dtype, device=device
+        )
+        sim.set_incident_angle(inc_ang=0.0, azi_ang=0.0)
+        sim.add_layer(thickness=200.0, eps=eps, mu=mu)
+        sim.solve_global_smatrix()
+        return sim.S_parameters(orders=[[0, 0]], polarization="xx", ref_order=[0, 0])
+
+    lossless = [(4, 2), (4 + 0j, 2 + 0j), ([4.0], [2.0]), (torch.tensor(4.0), 2)]
+    absorbing = [([4 + 0.5j], 2), (torch.tensor(4 + 0.5j), 2 + 0j)]
+    for ref, variants in [((4.0, 2.0), lossless), ((4 + 0.5j, 2.0), absorbing)]:
+        for eps, mu in variants:
+            torch.testing.assert_close(transmission(eps, mu), transmission(*ref))
