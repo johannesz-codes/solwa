@@ -331,8 +331,10 @@ class rcwa:
             material or a tensor for inhomogeneous material. Default is 1.0.
         """
 
-        is_eps_homogenous = torch.as_tensor(eps).dim() <= 1
-        is_mu_homogenous = torch.as_tensor(mu).dim() <= 1
+        eps = torch.as_tensor(eps, dtype=self._dtype, device=self._device)
+        mu = torch.as_tensor(mu, dtype=self._dtype, device=self._device)
+        is_eps_homogenous = eps.dim() <= 1
+        is_mu_homogenous = mu.dim() <= 1
 
         self.eps_conv.append(
             self._bc(eps, 2)
