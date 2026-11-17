@@ -169,8 +169,17 @@ class EigFunc(torch.autograd.Function):
                 inner = (1 / ksum).conj() * (XH @ g_K @ XinvH)
             if g_Phi is not None:
                 cc = c[..., None, None] if c.dim() else c
+                # (ph_i - ph_j) / (k_i - k_j); sinc form only where cancellation
+                # hurts (|x| < 1), since sinc and exp over/underflow for large |x|
                 x = cc * (ki - kj) / 2
-                D = torch.exp(0.5j * cc * ksum) * 1j * cc * torch.sinc(x / torch.pi)
+                small = x.abs() < 1
+                xs = torch.where(small, x, torch.zeros_like(x))
+                D = torch.where(
+                    small,
+                    torch.exp(0.5j * cc * ksum) * 1j * cc * torch.sinc(xs / torch.pi),
+                    (ph[..., :, None] - ph[..., None, :])
+                    / torch.where(small, 1, ki - kj),
+                )
                 inner = inner + (D / ksum).conj() * (XH @ g_Phi @ XinvH)
                 if ctx.needs_input_grad[1]:
                     dPhi = (X * (1j * kz * ph)[..., None, :]) @ Xinv

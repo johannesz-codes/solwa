@@ -55,3 +55,21 @@ def test_degenerate_grad(Wy, dtype, auto, tol, device):
     h = 1e-6
     fd = (_loss(eps0 + h * v, device) - _loss(eps0 - h * v, device)).item() / (2 * h)
     assert abs(ad - fd) < tol * abs(fd)
+
+
+def test_thick_layer_grad_finite(device):
+    """Propagation divided differences must not overflow for evanescent modes."""
+    eps = torch.full((16, 16), 2.25, dtype=torch.complex64, device=device)
+    eps[:8, :8] += 0.5
+    eps.requires_grad_(True)
+    sim = solwa.rcwa(
+        freq=1 / 1.3, order=[3, 3], L=[1.0, 1.0], dtype=torch.complex64, device=device
+    )
+    sim.add_input_layer(eps=1.0)
+    sim.add_output_layer(eps=1.0)
+    sim.set_incident_angle(inc_ang=0.1, azi_ang=0.2)
+    sim.add_layer(thickness=10.0, eps=eps)
+    sim.solve_global_smatrix()
+    T = sim.S_parameters(orders=[[0, 0]], port="t", polarization="xx").abs() ** 2
+    (grad,) = torch.autograd.grad(T.sum(), eps)
+    assert torch.isfinite(grad).all()
