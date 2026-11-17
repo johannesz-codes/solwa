@@ -1,4 +1,4 @@
-**solwa 0.3.0rc1**
+**solwa 0.3.0rc2**
 ======
 
 * License: LGPL
@@ -24,6 +24,10 @@ Features
 * Scattering parameters, diffraction angles, electromagnetic field maps, and Poynting vector / power-flux calculations
 
 * Optional layer offloading to reduce GPU memory use in multilayer simulations
+
+* Mixed precision (`auto_precision`): complex128 eigendecomposition, complex64 for the rest
+
+* Batched wavelengths in a single run (experimental)
 
 * Units: Lorentz-Heaviside units
 
@@ -53,6 +57,42 @@ pip install .
 
 PyTorch ≥ 2.10 is recommended for improved CUDA performance
 (see PR: https://github.com/pytorch/pytorch/pull/166715)
+
+Simulation Options
+------------
+The main options of `solwa.rcwa`, all keyword-only:
+
+```python
+import torch
+import solwa
+
+sim = solwa.rcwa(
+    freq=1 / 532,                # 1/wavelength
+    order=[10, 10],
+    L=[300, 300],
+    dtype=torch.complex64,       # or torch.complex128
+    factorization="li",          # default; "laurent" reproduces solwa <= 0.2
+    auto_precision=False,        # True: eig in complex128, rest in complex64
+    offload_device=None,         # e.g. torch.device("cpu") to save GPU memory
+)
+```
+
+* `factorization="li"` applies Li's inverse rule and converges much faster for
+  TM polarization and crossed gratings than the plain Laurent rule.
+* `auto_precision=True` gets close to complex128 accuracy at roughly the memory
+  use of complex64. `dtype` then only sets the precision of inputs and results.
+* `offload_device=torch.device("cpu")` moves finished layers (in pinned memory)
+  to the host and back on demand, which lowers peak GPU memory for many layers.
+* A 1-D `freq` tensor solves several wavelengths at once (experimental, field
+  methods not supported yet). Permittivities may then carry a leading
+  wavelength axis, and results get one too:
+
+```python
+freq = 1 / torch.tensor([500.0, 620.0, 780.0])
+sim = solwa.rcwa(freq=freq, order=[10, 10], L=[400, 400])
+```
+
+<br/>
 
 Material Handling
 ------------
