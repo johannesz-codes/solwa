@@ -3,7 +3,7 @@
 Full solve of a batch of neighbouring wavelengths for air | a-Si:H 200 nm | pillar grating
 114.5 nm | Ag 200 nm | air at normal incidence (Li factorization, complex128).
 
-    python benchmarks/eig_reuse.py --order 12 --batch 8 --grad
+    python benchmarks/eig_reuse.py --device cuda --order 12 --batch 8 --grad
 """
 
 import argparse
@@ -16,7 +16,7 @@ from scipy.interpolate import interp1d
 
 import solwa
 
-DEV = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DEV = None  # set from --device in main()
 CDT, RDT = torch.complex128, torch.float64
 NK_FILE = Path(__file__).parents[1] / "example" / "Materials_data" / "aSiH.txt"
 PERIOD, WIDTH, N_DIEL, NX = 522.1, 338.9, 1.5, 512
@@ -87,11 +87,14 @@ def timed(lam, order, reuse, grad):
 
 
 def main():
+    global DEV
     ap = argparse.ArgumentParser()
+    ap.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     ap.add_argument("--order", type=int, default=7)
     ap.add_argument("--batch", type=int, default=8)
     ap.add_argument("--grad", action="store_true", help="include the backward pass")
     a = ap.parse_args()
+    DEV = torch.device(a.device)
     name = torch.cuda.get_device_name() if DEV.type == "cuda" else "cpu"
     print(
         f"{name}, torch {torch.__version__}, order {a.order}, batch {a.batch}, grad {a.grad}"
