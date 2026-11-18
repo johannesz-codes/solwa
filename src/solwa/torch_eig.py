@@ -107,9 +107,15 @@ def _eig_vjp(eigval, eigvec, grad_eigval, grad_eigvec):
 
 
 def _kz(eigval):
-    """Normalized kz = sqrt(eigval) on the branch with Im(kz) >= 0."""
+    """Normalized kz = sqrt(eigval) on the branch with Im(kz) >= 0.
+
+    Propagating lossless modes keep Re(kz) > 0 when roundoff gives them a tiny
+    negative Im(kz), so (near-)degenerate pairs never land on opposite branches
+    (kz_i + kz_j ~ 0 would break the K/Phi backward).
+    """
     kz = torch.sqrt(eigval)
-    return torch.where(torch.imag(kz) < 0, -kz, kz)
+    tol = torch.finfo(kz.real.dtype).eps ** 0.5
+    return torch.where(kz.imag < -tol * kz.abs(), -kz, kz)
 
 
 class EigFunc(torch.autograd.Function):

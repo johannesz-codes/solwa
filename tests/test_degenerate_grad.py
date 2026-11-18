@@ -32,20 +32,21 @@ def _loss(eps, device, dtype=torch.complex128, auto=False):
 
 
 @pytest.mark.parametrize(
-    "Wy, dtype, auto, tol",
+    "Wy, loss, dtype, auto, tol",
     [
-        (0.25, torch.complex128, False, 1e-4),  # centered rectangle: no degeneracy
-        (0.4, torch.complex128, False, 1e-4),  # centered square: degenerate modes
-        (0.4, torch.complex128, True, 1e-3),
-        (0.4, torch.complex64, False, 1e-2),
+        (0.25, 0.1, torch.complex128, False, 1e-4),  # rectangle: no degeneracy
+        (0.4, 0.1, torch.complex128, False, 1e-4),  # square: degenerate modes
+        (0.4, 0.0, torch.complex128, False, 1e-4),  # lossless: kz branch
+        (0.4, 0.1, torch.complex128, True, 1e-3),
+        (0.4, 0.1, torch.complex64, False, 1e-2),
     ],
 )
-def test_degenerate_grad(Wy, dtype, auto, tol, device):
+def test_degenerate_grad(Wy, loss, dtype, auto, tol, device):
     geo = solwa.geometry(
         Lx=1.0, Ly=1.0, nx=64, ny=64, edge_sharpness=500.0,
         dtype=torch.float64, device=device,
     )  # fmt: skip
-    eps0 = 1.0 + (11.0 + 0.1j) * geo.rectangle(Wx=0.4, Wy=Wy, Cx=0.5, Cy=0.5)
+    eps0 = 1.0 + (11.0 + 1j * loss) * geo.rectangle(Wx=0.4, Wy=Wy, Cx=0.5, Cy=0.5)
     v = torch.randn(64, 64, dtype=torch.float64, device=device,
                     generator=torch.Generator(device).manual_seed(0))  # fmt: skip
 
