@@ -85,16 +85,22 @@ class GitHub:
             headers={"Authorization": f"Bearer {self.token}",
                      "Accept": "application/vnd.github+json",
                      "Content-Type": "application/json", "X-GitHub-Api-Version": "2022-11-28"})
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                payload = response.read()
-                return json.loads(payload) if payload else {}
-        except urllib.error.HTTPError as exc:
-            if missing_ok and exc.code == 404:
-                return None
-            raise CIError(f"GitHub {method} {path.split('?')[0]} failed (HTTP {exc.code})") from None
-        except (urllib.error.URLError, TimeoutError):
-            raise CIError("GitHub request failed or timed out") from None
+        # Idempotent GETs ride out transient GitHub errors (5xx, network) with a short backoff.
+        tries = 3 if method == "GET" else 1
+        for attempt in range(1, tries + 1):
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    payload = response.read()
+                    return json.loads(payload) if payload else {}
+            except urllib.error.HTTPError as exc:
+                if missing_ok and exc.code == 404:
+                    return None
+                if exc.code < 500 or attempt == tries:
+                    raise CIError(f"GitHub {method} {path.split('?')[0]} failed (HTTP {exc.code})") from None
+            except (urllib.error.URLError, TimeoutError):
+                if attempt == tries:
+                    raise CIError("GitHub request failed or timed out") from None
+            time.sleep(2 * attempt)
 
     def runners(self):
         page = 1
