@@ -1847,6 +1847,10 @@ class rcwa:
         Coordinates can be supplied either as actual sampling points or as
         centers of finite cells. The two forms are mutually exclusive.
 
+        .. versionchanged:: 0.3.0
+           Positional coordinates are now cell centers; sampling points are
+           keyword-only (``x_points=``/``y_points=``).
+
         Parameters
         ----------
         layer_num : int

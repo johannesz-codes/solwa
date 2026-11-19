@@ -76,6 +76,12 @@ def poynting_flux(
     :class:`solwa.geometry`. Passing only a contiguous subset of those centers
     integrates only the corresponding subset of cells.
 
+    .. versionchanged:: 0.3.0
+       Positional coordinates are now cell centers (``x_cells``/``y_cells``).
+       Sampling points must be passed as ``x_points=``/``y_points=``; callers
+       that passed point grids positionally get midpoint instead of
+       trapezoidal integration.
+
     Parameters
     ----------
     sim : object
