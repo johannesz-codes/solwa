@@ -117,11 +117,11 @@ def test_poynting_flux_accepts_float32_cell_grid_with_rounding():
     assert torch.isclose(flux, torch.tensor(300.0**2), rtol=1e-5)
 
 
-def test_poynting_flux_warns_for_float32_full_cell_grid():
+def test_poynting_flux_rejects_float32_full_cell_grid_as_points():
     geo = _geometry(n=1000, L=300.0, dtype=torch.float32)
     sim = ConstantPoyntingSimulation32(L=(300.0, 300.0))
 
-    with pytest.warns(UserWarning, match="x_cells/y_cells"):
+    with pytest.raises(ValueError, match="x_cells/y_cells"):
         poynting_flux(sim, layer=0, x_points=geo.x, y_points=geo.y)
 
 
@@ -134,15 +134,13 @@ def test_poynting_flux_rejects_nonuniform_small_scale_cell_centers():
         poynting_flux(sim, layer=0, x_cells=x_cells, y_cells=y_cells)
 
 
-def test_poynting_flux_warns_when_points_look_cell_centered():
+def test_poynting_flux_positional_coordinates_are_cells():
     geo = _geometry()
     sim = ConstantPoyntingSimulation()
 
-    with pytest.warns(UserWarning, match="x_cells/y_cells"):
-        flux = poynting_flux(sim, layer=0, x_points=geo.x, y_points=geo.y)
+    flux = solwa.rcwa.poynting_flux(sim, 0, geo.x, geo.y)
 
-    expected = torch.tensor(0.99**2, dtype=geo.dtype)
-    assert torch.isclose(flux, expected, atol=1e-12)
+    assert torch.isclose(flux, torch.tensor(1.0, dtype=geo.dtype), atol=1e-12)
 
 
 def test_poynting_flux_does_not_warn_for_subset_of_cell_centers():

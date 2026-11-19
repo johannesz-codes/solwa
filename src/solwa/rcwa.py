@@ -1833,12 +1833,12 @@ class rcwa:
     def poynting_flux(
         self,
         layer_num,
-        x_points=None,
-        y_points=None,
-        z_prop=0.0,
-        *,
         x_cells=None,
         y_cells=None,
+        z_prop=0.0,
+        *,
+        x_points=None,
+        y_points=None,
     ):
         """
         Compute the Poynting flux through an XY plane inside a chosen layer.
@@ -1847,22 +1847,27 @@ class rcwa:
         Coordinates can be supplied either as actual sampling points or as
         centers of finite cells. The two forms are mutually exclusive.
 
+        .. versionchanged:: 0.3.0
+           Positional coordinates are now cell centers; sampling points are
+           keyword-only (``x_points=``/``y_points=``).
+
         Parameters
         ----------
         layer_num : int
             Index of the layer in which the XY plane is located. Use -1 for
             the input layer.
-        x_points, y_points : array-like or torch.Tensor, optional
-            Actual x/y sampling coordinates. The flux is integrated between
-            these points with the trapezoidal rule. Both axes must be supplied
-            together. Passing cell centers here (e.g. ``rcwa_geo.x``) emits a
-            warning; use ``x_cells``/``y_cells`` for those.
+        x_cells, y_cells : array-like or torch.Tensor, optional
+            Centers of adjacent, equally sized x/y cells, e.g.
+            ``rcwa_geo.x``/``rcwa_geo.y``. Each sample represents the full cell
+            around its center and midpoint quadrature is used. Both axes must
+            be supplied together.
         z_prop : float, optional
             z-position at which to evaluate the flux. Default is 0.0.
-        x_cells, y_cells : array-like or torch.Tensor, optional
-            Centers of adjacent, equally sized x/y cells. Each sample
-            represents the full cell around its center and midpoint
-            quadrature is used. Both axes must be supplied together.
+        x_points, y_points : array-like or torch.Tensor, optional
+            Keyword-only actual x/y sampling coordinates. The flux is
+            integrated between these points with the trapezoidal rule. Both
+            axes must be supplied together. The full cell-center grid (e.g.
+            ``rcwa_geo.x``) is rejected here; use ``x_cells``/``y_cells``.
 
         Returns
         -------
@@ -1872,8 +1877,8 @@ class rcwa:
         Raises
         ------
         ValueError
-            If point and cell coordinates are mixed or an axis pair is
-            incomplete.
+            If point and cell coordinates are mixed, an axis pair is
+            incomplete, or the full cell-center grid is passed as points.
         """
         from .utils import poynting_flux
 
