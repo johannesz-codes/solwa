@@ -3,7 +3,7 @@ import warnings
 
 import torch
 from math import pi
-from .torch_eig import Eig
+from .torch_eig import EigFunc, _kz
 
 
 def _vcat(tensors):
@@ -14,11 +14,6 @@ def _vcat(tensors):
 def _hcat(tensors):
     """Block-column concatenation that keeps leading (wavelength) batch dims."""
     return torch.cat(tensors, dim=-1)
-
-
-def _solve_H(P, E, kz):
-    """H eigenvectors from P H = E diag(kz); returns (H, info) like solve_ex."""
-    return torch.linalg.solve_ex(P, E * kz[..., None, :])
 
 
 def _precision_io(method):
@@ -2250,32 +2245,52 @@ class rcwa:
             PQ = torch.matmul(
                 self.P[-1].to(self._eig_dtype), self.Q[-1].to(self._eig_dtype)
             )
+        # Besides the modes, keep K = sqrt(PQ) and Phi = exp(i omega d K): the
+        # layer S-matrix depends on the modes only through them, and their
+        # gradient stays exact at degenerate modes (#91).
+        c = torch.as_tensor(
+            self.omega * self.thickness[-1], dtype=PQ.real.dtype, device=PQ.device
+        )
         if self.stable_eig_grad is True:
-            kz_norm, E_eigvec = Eig.apply(PQ, self._offload_device)
+            eigval, E_eigvec, E_inv, K, Phi = EigFunc.apply(PQ, c, self._offload_device)
         else:
-            kz_norm, E_eigvec = torch.linalg.eig(PQ)
+            eigval, E_eigvec = torch.linalg.eig(PQ)
+            E_inv = torch.linalg.inv(E_eigvec)
+            ph = torch.exp(1j * self._bc(c, 1) * _kz(eigval))
+            K = torch.matmul(E_eigvec * _kz(eigval)[..., None, :], E_inv)
+            Phi = torch.matmul(E_eigvec * ph[..., None, :], E_inv)
 
-        kz_norm = torch.sqrt(kz_norm)
-        self.kz_norm.append(
-            torch.where(torch.imag(kz_norm) < 0, -kz_norm, kz_norm).to(self._dtype)
-        )  # Normalized kz for positive mode
+        self.kz_norm.append(_kz(eigval).to(self._dtype))  # positive modes
         self.E_eigvec.append(E_eigvec.to(self._dtype))
+        self._layer_mf = [t.to(self._dtype) for t in (E_inv, K, Phi)]
 
     def _solve_layer_smatrix(self):
-        Kz_norm = torch.diag_embed(self.kz_norm[-1])
-        phase = torch.diag_embed(
-            torch.exp(
-                1.0j * self._bc(self.omega, 1) * self.kz_norm[-1] * self.thickness[-1]
+        # Layer S-matrix in a mode-basis-free form: with W the modes, H = P^-1 W Kz
+        # and phase = diag(exp(i omega d kz)), right-multiplying by W^-1 turns
+        # W -> I, H -> P^-1 K and W phase W^-1 -> Phi (K, Phi: see
+        # _eigen_decomposition). Cf/Cb are mapped back to the modes for fields.
+        n = 2 * self.order_N
+        eye = torch.eye(n, dtype=self._dtype, device=self._device)
+        if self._layer_is_homogeneous:
+            E_inv = None
+            K = torch.diag_embed(self.kz_norm[-1])
+            Phi = torch.diag_embed(
+                torch.exp(
+                    1.0j
+                    * self._bc(self.omega, 1)
+                    * self.kz_norm[-1]
+                    * self.thickness[-1]
+                )
             )
-        )
+        else:
+            E_inv, K, Phi = self._layer_mf
+            del self._layer_mf  # only needed for this layer
 
+        use_Q = False
         if self.avoid_Pinv_instability:
             Pinv_tmp, info = torch.linalg.inv_ex(self.P[-1])
             if torch.any(info != 0):
                 self._raise_singular_P(info)
-            eye = torch.eye(
-                self.P[-1].shape[-1], dtype=self.P[-1].dtype, device=self.P[-1].device
-            )
             Pinv_ins_tmp1 = torch.max(
                 torch.abs(torch.matmul(self.P[-1].detach(), Pinv_tmp.detach()) - eye)
             )
@@ -2283,117 +2298,33 @@ class rcwa:
                 torch.abs(torch.matmul(Pinv_tmp.detach(), self.P[-1].detach()) - eye)
             )
             self.Pinv_instability.append(torch.maximum(Pinv_ins_tmp1, Pinv_ins_tmp2))
-
-            if self.Pinv_instability[-1] < self.max_Pinv_instability:
-                H, info = _solve_H(self.P[-1], self.E_eigvec[-1], self.kz_norm[-1])
-                if torch.any(info != 0):
-                    self._raise_singular_P(info)
-                self.H_eigvec.append(H)
-            else:
-                self.H_eigvec.append(
-                    torch.matmul(
-                        self.Q[-1],
-                        torch.matmul(self.E_eigvec[-1], torch.linalg.inv(Kz_norm)),
-                    )
-                )
+            use_Q = not self.Pinv_instability[-1] < self.max_Pinv_instability
+        if use_Q:
+            HW = torch.linalg.solve(K, self.Q[-1], left=False)  # Q K^-1
         else:
-            H, info = _solve_H(self.P[-1], self.E_eigvec[-1], self.kz_norm[-1])
+            HW, info = torch.linalg.solve_ex(self.P[-1], K)  # P^-1 K
             if torch.any(info != 0):
                 self._raise_singular_P(info)
-            self.H_eigvec.append(H)
+        self.H_eigvec.append(torch.matmul(HW, self.E_eigvec[-1]))
 
-        Ctmp1 = _vcat(
-            (
-                self.E_eigvec[-1]
-                + torch.matmul(torch.linalg.inv(self.Vf), self.H_eigvec[-1]),
-                torch.matmul(
-                    self.E_eigvec[-1]
-                    - torch.matmul(torch.linalg.inv(self.Vf), self.H_eigvec[-1]),
-                    phase,
-                ),
-            )
+        G = torch.linalg.solve(self.Vf, HW)
+        GPhi = torch.matmul(eye - G, Phi)
+        C2 = 2 * torch.linalg.inv(
+            _hcat((_vcat((eye + G, GPhi)), _vcat((GPhi, eye + G))))
         )
-        Ctmp2 = _vcat(
-            (
-                torch.matmul(
-                    self.E_eigvec[-1]
-                    - torch.matmul(torch.linalg.inv(self.Vf), self.H_eigvec[-1]),
-                    phase,
-                ),
-                self.E_eigvec[-1]
-                + torch.matmul(torch.linalg.inv(self.Vf), self.H_eigvec[-1]),
-            )
-        )
-        Ctmp = _hcat((Ctmp1, Ctmp2))
+        ft, fb = C2[..., :n, :n], C2[..., n:, :n]
+        bt, bb = C2[..., :n, n:], C2[..., n:, n:]
 
-        # Mode coupling coefficients
-        self.Cf.append(
-            torch.matmul(
-                torch.linalg.inv(Ctmp),
-                _vcat(
-                    (
-                        2
-                        * torch.eye(
-                            2 * self.order_N, dtype=self._dtype, device=self._device
-                        ),
-                        torch.zeros(
-                            [2 * self.order_N, 2 * self.order_N],
-                            dtype=self._dtype,
-                            device=self._device,
-                        ),
-                    )
-                ),
-            )
-        )
-        self.Cb.append(
-            torch.matmul(
-                torch.linalg.inv(Ctmp),
-                _vcat(
-                    (
-                        torch.zeros(
-                            [2 * self.order_N, 2 * self.order_N],
-                            dtype=self._dtype,
-                            device=self._device,
-                        ),
-                        2
-                        * torch.eye(
-                            2 * self.order_N, dtype=self._dtype, device=self._device
-                        ),
-                    )
-                ),
-            )
-        )
+        self.layer_S11.append(torch.matmul(Phi, ft) + fb)
+        self.layer_S21.append(ft + torch.matmul(Phi, fb) - eye)
+        self.layer_S12.append(torch.matmul(Phi, bt) + bb - eye)
+        self.layer_S22.append(bt + torch.matmul(Phi, bb))
 
-        self.layer_S11.append(
-            torch.matmul(
-                torch.matmul(self.E_eigvec[-1], phase),
-                self.Cf[-1][..., : 2 * self.order_N, :],
-            )
-            + torch.matmul(self.E_eigvec[-1], self.Cf[-1][..., 2 * self.order_N :, :])
-        )
-        self.layer_S21.append(
-            torch.matmul(self.E_eigvec[-1], self.Cf[-1][..., : 2 * self.order_N, :])
-            + torch.matmul(
-                torch.matmul(self.E_eigvec[-1], phase),
-                self.Cf[-1][..., 2 * self.order_N :, :],
-            )
-            - torch.eye(2 * self.order_N, dtype=self._dtype, device=self._device)
-        )
-        self.layer_S12.append(
-            torch.matmul(
-                torch.matmul(self.E_eigvec[-1], phase),
-                self.Cb[-1][..., : 2 * self.order_N, :],
-            )
-            + torch.matmul(self.E_eigvec[-1], self.Cb[-1][..., 2 * self.order_N :, :])
-            - torch.eye(2 * self.order_N, dtype=self._dtype, device=self._device)
-        )
-        self.layer_S22.append(
-            torch.matmul(self.E_eigvec[-1], self.Cb[-1][..., : 2 * self.order_N, :])
-            + torch.matmul(
-                torch.matmul(self.E_eigvec[-1], phase),
-                self.Cb[-1][..., 2 * self.order_N :, :],
-            )
-        )
+        # Mode coupling coefficients in the mode basis (fields, return_layer)
+        if E_inv is not None:
+            C2 = _vcat((E_inv @ C2[..., :n, :], E_inv @ C2[..., n:, :]))
+        self.Cf.append(C2[..., :n])
+        self.Cb.append(C2[..., n:])
 
     def _raise_singular_P(self, info):
         # P (H to E) is singular when a mode has kz = 0 in this layer. In a
