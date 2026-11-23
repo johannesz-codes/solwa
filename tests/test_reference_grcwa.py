@@ -2,7 +2,8 @@
 
 grcwa uses the Laurent rule on the same pixel grid and rectangular truncation,
 so ``factorization="laurent"`` must reproduce it to rounding error: diffraction
-efficiencies per order and the fields inside a patterned layer.
+efficiencies per order (p, s, circular input via the ps notation; x, y input
+via the xy notation) and the fields inside a patterned layer.
 """
 
 import math
@@ -31,7 +32,7 @@ def _layers():
     ]
 
 
-def _grcwa(pol):
+def _grcwa(a_p, a_s):
     obj = grcwa.obj((2 * M + 1) ** 2, [1.0, 0], [0, 1.0], FREQ, THETA, PHI, verbose=0)
     obj.Add_LayerUniform(0.1, EPS_IN)
     for h, eps in _layers():
@@ -45,7 +46,7 @@ def _grcwa(pol):
         np.concatenate([e.ravel() for _, e in _layers() if np.ndim(e)])
     )
     obj.MakeExcitationPlanewave(
-        *((1, 0, 0, 0) if pol == "p" else (0, 0, 1, 0)), order=0
+        abs(a_p), np.angle(a_p), abs(a_s), np.angle(a_s), order=0
     )
     return obj
 
@@ -64,23 +65,50 @@ def _solwa(device):
     return sim
 
 
-@pytest.mark.parametrize("pol", ["p", "s"])
+# Incident (p, s) amplitudes. x/y: tangential E = (1, 0) / (0, 1), decomposed
+# with p_t = cos(theta) (cos phi, sin phi) and s_t = (-sin phi, cos phi).
+C, S = math.cos(PHI), math.sin(PHI)
+INPUTS = {
+    "p": (1, 0),
+    "s": (0, 1),
+    "circular": (1, 1j),
+    "x": (C / math.cos(THETA), -S),
+    "y": (S / math.cos(THETA), C),
+}
+
+
+@pytest.mark.parametrize("pol", list(INPUTS))
 def test_efficiencies_match_grcwa(pol, device):
-    obj = _grcwa(pol)
-    R, T = (np.real(a) for a in obj.RT_Solve(normalize=1, byorder=1))
+    a_p, a_s = INPUTS[pol]
+    obj = _grcwa(a_p, a_s)
+    power_in = abs(a_p) ** 2 + abs(a_s) ** 2  # RT_Solve normalizes to |a| = 1
+    R, T = (np.real(a) / power_in for a in obj.RT_Solve(normalize=1, byorder=1))
     sim = _solwa(device)
     orders = obj.G.tolist()
-    for port, ref in (("r", R), ("t", T)):
-        eff = sum(
-            sim.S_parameters(orders, port=port, polarization=out + pol).abs() ** 2
-            for out in "ps"
-        )
-        np.testing.assert_allclose(eff.cpu().numpy(), ref, rtol=0, atol=1e-12)
+    kx = math.sin(THETA) * C + obj.G[:, 0] / FREQ
+    ky = math.sin(THETA) * S + obj.G[:, 1] / FREQ
+    for port, eps, ref in (("r", EPS_IN, R), ("t", EPS_OUT, T)):
+
+        def amp(out, inp, **kw):
+            S_ = sim.S_parameters(orders, port=port, polarization=out + inp, **kw)
+            return S_.cpu().numpy()
+
+        if pol in "xy":  # power from raw tangential E amplitudes
+            kz = np.sqrt(eps - kx**2 - ky**2 + 0j)
+            Ex, Ey = amp("x", pol, power_norm=False), amp("y", pol, power_norm=False)
+            E2 = abs(Ex) ** 2 + abs(Ey) ** 2 + abs((kx * Ex + ky * Ey) / kz) ** 2
+            eff = np.real(kz) * E2 / (math.cos(THETA) * power_in)
+        else:  # coherent sum of power-normalized p/s columns
+            eff = (
+                sum(abs(a_p * amp(out, "p") + a_s * amp(out, "s")) ** 2 for out in "ps")
+                / power_in
+            )
+        np.testing.assert_allclose(eff, ref, rtol=0, atol=1e-12)
 
 
 def test_fields_match_grcwa(device):
     z = 0.1  # inside the first (patterned) layer
-    E_ref, H_ref = _grcwa("p").Solve_FieldOnGrid(1, z)
+    E_ref, H_ref = _grcwa(1, 0).Solve_FieldOnGrid(1, z)
     sim = _solwa(device)
     sim.source_planewave(amplitude=[1.0, 0.0], notation="ps")
     x = torch.arange(NX, dtype=torch.float64, device=device) / NX
