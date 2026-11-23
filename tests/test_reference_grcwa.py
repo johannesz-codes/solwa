@@ -92,5 +92,5 @@ def test_fields_match_grcwa(device):
     X, Y = np.meshgrid(x.cpu().numpy(), x.cpu().numpy(), indexing="ij")
     ref = ref * np.exp(1j * k * (math.cos(PHI) * X + math.sin(PHI) * Y))
     i = np.unravel_index(np.abs(ref).argmax(), ref.shape)
-    ref = ref * (ours[i] / ref[i])
+    ref = ref * np.exp(1j * np.angle(ours[i] / ref[i]))  # phase only, not magnitude
     assert np.abs(ours - ref).max() < 1e-10 * np.abs(ref).max()
