@@ -83,7 +83,7 @@ jobs:
           python3 -m venv "$VENV"
           "$VENV/bin/pip" install --disable-pip-version-check uv==0.12.24
           "$VENV/bin/uv" pip install --python "$VENV/bin/python" \
-            torch numpy scipy pytest setuptools wheel
+            torch numpy scipy pytest setuptools wheel grcwa==0.1.2
       - name: Verify CUDA and record the environment
         run: |
           /home/runner/venv/bin/python - <<'PY'
