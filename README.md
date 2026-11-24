@@ -1,4 +1,4 @@
-**solwa 0.3.0rc2**
+**solwa 0.3.0rc3**
 ======
 
 * License: LGPL
