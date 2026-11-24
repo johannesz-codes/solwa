@@ -50,7 +50,7 @@ jobs:
       - name: Run CPU tests
         if: github.event_name != 'release' && steps.nightly.outputs.skip != 'true'
         run: |
-          pip install . pytest
+          pip install . pytest grcwa==0.1.2
           python -m pytest tests/ --device=cpu -q
 
       - name: Install build tools
