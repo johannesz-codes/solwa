@@ -80,3 +80,35 @@ def test_avoid_Pinv_instability(dtype, device):
     S_q = _run(*args, avoid_Pinv_instability=True, max_Pinv_instability=0.0)
     tol = 1e-4 if dtype == torch.complex64 else 1e-10
     torch.testing.assert_close(S_q, S, rtol=tol, atol=tol)
+
+
+@pytest.mark.parametrize("dtype", [torch.complex64, torch.complex128])
+def test_avoid_Pinv_instability_per_wavelength(dtype, device):
+    """#66: the P^-1 / Q branch is chosen per wavelength, not once per batch."""
+    freq = 1.0 / torch.tensor(LAMS, dtype=dtype.to_real(), device=device)
+
+    def layer(threshold):
+        sim = solwa.rcwa(
+            freq=freq, order=[2, 2], L=[L, L], dtype=dtype, device=device,
+            avoid_Pinv_instability=True, max_Pinv_instability=threshold,
+        )  # fmt: skip
+        sim.add_input_layer(eps=1.0)
+        sim.add_output_layer(eps=2.0)
+        sim.set_incident_angle(inc_ang=0.2, azi_ang=0.1)
+        geo = solwa.geometry(Lx=L, Ly=L, nx=64, ny=64, edge_sharpness=500.0,
+                             dtype=dtype.to_real(), device=device)  # fmt: skip
+        sim.add_layer(
+            thickness=150.0, eps=1.0 + 3.0 * geo.circle(R=110.0, Cx=L / 2, Cy=L / 2)
+        )
+        return sim.Pinv_instability[0], sim.H_eigvec[0]
+
+    inst, H_P = layer(float("inf"))  # P^-1 branch for every wavelength
+    _, H_Q = layer(0.0)  # Q branch for every wavelength
+    assert inst.shape == (len(LAMS),)
+    threshold = inst.median().item()  # splits the batch
+    pick = inst < threshold
+    assert pick.any() and not pick.all()
+    _, H = layer(threshold)
+    torch.testing.assert_close(
+        H, torch.where(pick[:, None, None], H_P, H_Q), rtol=0, atol=0
+    )
