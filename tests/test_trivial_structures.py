@@ -406,9 +406,9 @@ class TestBinaryGrating:
 
 
 def test_singular_P_at_layer_rayleigh_anomaly_raises_clear_error():
-    """Order (-1, 0) has kz = 0 inside the layer at λ = period (issue #78)."""
+    """Order (-1, 0) has kz = 0 inside the layer at λ = n * period (issue #78)."""
     sim = solwa.rcwa(
-        freq=torch.tensor([1 / 600.0, 1 / 500.0], dtype=torch.float64),
+        freq=torch.tensor([1 / 600.0, 1 / 750.0], dtype=torch.float64),
         order=[3, 0],
         L=[500.0, 500.0],
         dtype=torch.complex128,
@@ -419,7 +419,24 @@ def test_singular_P_at_layer_rayleigh_anomaly_raises_clear_error():
     with pytest.raises(
         torch.linalg.LinAlgError, match=r"Layer 0.*batch index 1.*Rayleigh"
     ):
-        sim.add_layer(thickness=100.0, eps=1.0)
+        sim.add_layer(thickness=100.0, eps=2.25)
+
+
+def test_half_space_rayleigh_anomaly_raises_clear_error(device):
+    """Order (-1, 0) has kz = 0 in the output medium at n * period = λ (issue #92)."""
+    sim = solwa.rcwa(
+        freq=torch.tensor([1 / 600.0, 1 / 750.0], dtype=torch.float64),
+        order=[3, 0],
+        L=[500.0, 500.0],
+        dtype=torch.complex128,
+        device=device,
+    )
+    sim.add_output_layer(eps=2.25)
+    with pytest.raises(
+        torch.linalg.LinAlgError,
+        match=r"Output medium: diffraction order \(-1, 0\).*batch index 1.*Rayleigh",
+    ):
+        sim.set_incident_angle(inc_ang=0.0, azi_ang=0.0)
 
 
 @pytest.mark.parametrize("dtype", [torch.complex64, torch.complex128])

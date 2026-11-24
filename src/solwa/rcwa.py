@@ -2012,6 +2012,7 @@ class rcwa:
         Kz_norm_dn = torch.where(
             torch.imag(Kz_norm_dn) < 0, torch.conj(Kz_norm_dn), Kz_norm_dn
         )
+        self._check_kz(Kz_norm_dn, "free space (the solver's reference medium)")
         tmp1 = _vcat(
             (
                 torch.diag_embed(-self.Ky_norm_dn * self.Kx_norm_dn / Kz_norm_dn),
@@ -2036,6 +2037,7 @@ class rcwa:
             Kz_norm_dn = torch.where(
                 torch.imag(Kz_norm_dn) < 0, torch.conj(Kz_norm_dn), Kz_norm_dn
             )
+            self._check_kz(Kz_norm_dn, "input medium")
             tmp1 = _vcat(
                 (
                     torch.diag_embed(-self.Ky_norm_dn * self.Kx_norm_dn / Kz_norm_dn),
@@ -2069,6 +2071,7 @@ class rcwa:
             Kz_norm_dn = torch.where(
                 torch.imag(Kz_norm_dn) < 0, torch.conj(Kz_norm_dn), Kz_norm_dn
             )
+            self._check_kz(Kz_norm_dn, "output medium")
             tmp1 = _vcat(
                 (
                     torch.diag_embed(-self.Ky_norm_dn * self.Kx_norm_dn / Kz_norm_dn),
@@ -2091,6 +2094,25 @@ class rcwa:
             self.Sout.append(torch.matmul(Vtmp1, Vtmp2))  # Rf S21
             self.Sout.append(-torch.matmul(Vtmp1, Vtmp2))  # Rb S12
             self.Sout.append(2 * torch.matmul(Vtmp1, self.Vo))  # Tb S22
+
+    def _check_kz(self, kz, medium):
+        # The E-to-H matrix V of a half-space divides by kz. At a Rayleigh
+        # anomaly of a lossless medium kz is exactly 0, V turns NaN/Inf and the
+        # interface S-matrix inv(Vf + V) fails (CUDA) or silently returns NaN (CPU).
+        zero = (kz == 0).reshape(-1, self.order_N)
+        if not torch.any(zero):
+            return
+        b, i = torch.nonzero(zero)[0].tolist()
+        wl = (1 / self.freq.real).reshape(-1).tolist()
+        wl_txt = f"{wl[b]:g}" + (f" (batch index {b})" if self.freq.dim() > 0 else "")
+        ny = len(self.order_y)
+        order = (int(self.order_x[i // ny]), int(self.order_y[i % ny]))
+        raise torch.linalg.LinAlgError(
+            f"{medium.capitalize()}: diffraction order {order} has kz = 0 at "
+            f"wavelength {wl_txt}, i.e. it lies exactly on a Rayleigh anomaly of "
+            "this lossless medium, where the interface S-matrix is singular. "
+            "Shift the wavelength or angle slightly."
+        )
 
     def _material_conv(self, material):
         material_N = material.shape[-2] * material.shape[-1]
