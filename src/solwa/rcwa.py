@@ -2298,26 +2298,32 @@ class rcwa:
             eye = torch.eye(
                 self.P[-1].shape[-1], dtype=self.P[-1].dtype, device=self.P[-1].device
             )
-            Pinv_ins_tmp1 = torch.max(
-                torch.abs(torch.matmul(self.P[-1].detach(), Pinv_tmp.detach()) - eye)
+            Pinv_ins_tmp1 = torch.amax(
+                torch.abs(torch.matmul(self.P[-1].detach(), Pinv_tmp.detach()) - eye),
+                dim=(-2, -1),
             )
-            Pinv_ins_tmp2 = torch.max(
-                torch.abs(torch.matmul(Pinv_tmp.detach(), self.P[-1].detach()) - eye)
+            Pinv_ins_tmp2 = torch.amax(
+                torch.abs(torch.matmul(Pinv_tmp.detach(), self.P[-1].detach()) - eye),
+                dim=(-2, -1),
             )
             self.Pinv_instability.append(torch.maximum(Pinv_ins_tmp1, Pinv_ins_tmp2))
 
-            if self.Pinv_instability[-1] < self.max_Pinv_instability:
+            # Choose the branch per wavelength; compute only the branches in use.
+            use_Pinv = (self.Pinv_instability[-1] < self.max_Pinv_instability)[
+                ..., None, None
+            ]
+            H = None
+            if torch.any(use_Pinv):
                 H, info = _solve_H(self.P[-1], self.E_eigvec[-1], self.kz_norm[-1])
                 if torch.any(info != 0):
                     self._raise_singular_P(info)
-                self.H_eigvec.append(H)
-            else:
-                self.H_eigvec.append(
-                    torch.matmul(
-                        self.Q[-1],
-                        torch.matmul(self.E_eigvec[-1], torch.linalg.inv(Kz_norm)),
-                    )
+            if not torch.all(use_Pinv):
+                H_Q = torch.matmul(
+                    self.Q[-1],
+                    torch.matmul(self.E_eigvec[-1], torch.linalg.inv(Kz_norm)),
                 )
+                H = H_Q if H is None else torch.where(use_Pinv, H, H_Q)
+            self.H_eigvec.append(H)
         else:
             H, info = _solve_H(self.P[-1], self.E_eigvec[-1], self.kz_norm[-1])
             if torch.any(info != 0):

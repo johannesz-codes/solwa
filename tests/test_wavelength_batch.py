@@ -80,3 +80,17 @@ def test_avoid_Pinv_instability(dtype, device):
     S_q = _run(*args, avoid_Pinv_instability=True, max_Pinv_instability=0.0)
     tol = 1e-4 if dtype == torch.complex64 else 1e-10
     torch.testing.assert_close(S_q, S, rtol=tol, atol=tol)
+
+
+def test_Pinv_instability_per_wavelength(device):
+    """#66: the P^-1 check must not reduce over the wavelength batch."""
+    freq = 1.0 / torch.tensor(LAMS, dtype=torch.float64, device=device)
+    sim = solwa.rcwa(
+        freq=freq, order=[1, 1], L=[L, L], dtype=torch.complex128, device=device,
+        avoid_Pinv_instability=True,
+    )  # fmt: skip
+    sim.add_input_layer(eps=1.0)
+    sim.add_output_layer(eps=2.0)
+    sim.set_incident_angle(inc_ang=0.2, azi_ang=0.1)
+    sim.add_layer(thickness=100.0, eps=2.0)
+    assert sim.Pinv_instability[0].shape == (len(LAMS),)
