@@ -570,7 +570,10 @@ class rcwa:
             Port specification. Options are 't' or 'transmission', 'r' or 'reflection'.
             Default is 'transmission'.
         polarization : str, optional
-            Input and output polarization. For xy-polarization: 'xx', 'yx', 'xy', 'yy'.
+            Two letters: output polarization first, then input polarization,
+            e.g. 'sp' is the s-polarized output for a p-polarized input. So for
+            p input, the total power is |S_pp|^2 + |S_sp|^2.
+            For xy-polarization: 'xx', 'yx', 'xy', 'yy'.
             For ps-polarization: 'pp', 'sp', 'ps', 'ss'. Default is 'xx'.
         ref_order : array-like, optional
             Reference order for calculating S-parameters. Recommended shape is 1x2 or Nx2.
