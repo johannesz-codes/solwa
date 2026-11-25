@@ -131,30 +131,30 @@ significant changes from the original torcwa
 
 **solwa** Examples
 ---------------
-1. [Example 0](./example/Example0.ipynb): Fresnel equation
+1. [Example 0](https://github.com/johannesz-codes/solwa/blob/main/example/Example0.ipynb): Fresnel equation
 
-2. [Example 1](./example/Example1.ipynb): Simulation with rectangular meta-atom  
+2. [Example 1](https://github.com/johannesz-codes/solwa/blob/main/example/Example1.ipynb): Simulation with rectangular meta-atom  
 Normal incidence / Parametric sweep on wavelength / View electromagnetic field
 
-3. [Example 1-1](./example/Example1-1.ipynb): Simulation with stacked meta-atom  
+3. [Example 1-1](https://github.com/johannesz-codes/solwa/blob/main/example/Example1-1.ipynb): Simulation with stacked meta-atom  
 Normal incidence / View electromagnetic field
 
-4. [Example 2](./example/Example2.ipynb): Simulation with square meta-atom  
+4. [Example 2](https://github.com/johannesz-codes/solwa/blob/main/example/Example2.ipynb): Simulation with square meta-atom  
 Oblique incidence / View electromagnetic field
 
-5. [Example 3](./example/Example3.ipynb): Simulation with rectangular meta-atom  
+5. [Example 3](https://github.com/johannesz-codes/solwa/blob/main/example/Example3.ipynb): Simulation with rectangular meta-atom  
 Normal incidence / Parametric sweep on geometric parameters
 
-6. [Example 4](./example/Example4.ipynb): Gradient calculation of cylindrical meta-atom  
+6. [Example 4](https://github.com/johannesz-codes/solwa/blob/main/example/Example4.ipynb): Gradient calculation of cylindrical meta-atom  
 Differentiation of transmittance with respect to radius
 
-7. [Example 5](./example/Example5.ipynb): Shape optimization  
+7. [Example 5](https://github.com/johannesz-codes/solwa/blob/main/example/Example5.ipynb): Shape optimization  
 Maximize anisotropy
 
-8. [Example 6](./example/Example6.ipynb): Topology optimization  
+8. [Example 6](https://github.com/johannesz-codes/solwa/blob/main/example/Example6.ipynb): Topology optimization  
 Maximize 1st order diffraction
 
-9. [Example 7](./example/Example7.ipynb): Layer-by-layer absorption
+9. [Example 7](https://github.com/johannesz-codes/solwa/blob/main/example/Example7.ipynb): Layer-by-layer absorption
 Calculate absorbed power in each layer using Poynting flux
 
 <br/>
@@ -194,6 +194,6 @@ The work on the original **torcwa** was supported by the National Research Found
 SOLWA can run its physics tests on a fresh Nebius GPU VM through GitHub Actions.
 To run them on a pull request, add the `gpu-ci` label; they start after the CPU
 tests pass.
-See [GPU CI setup and recovery](ci/nebius/README.md) for the two secrets,
+See [GPU CI setup and recovery](https://github.com/johannesz-codes/solwa/blob/main/ci/nebius/README.md) for the two secrets,
 project/subnet configuration, the `gpu-ci` PR label, manual runs, and automatic
 cleanup.
