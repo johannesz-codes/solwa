@@ -2169,14 +2169,14 @@ class rcwa:
 
         # eps_xx: per y-sample Toeplitz of 1/eps along x, inverted, then Laurent along y
         coef_x = torch.fft.fft(inv_material, dim=-2) / nx  # [..., nx, ny]
-        a_x = torch.linalg.inv(coef_x.transpose(-2, -1)[..., dx])  # [..., ny, Mx, Mx]
+        a_x = self._inv_conv(coef_x.transpose(-2, -1)[..., dx])  # [..., ny, Mx, Mx]
         a_x = torch.fft.fft(a_x, dim=-3) / ny  # [..., q, Mx, Mx]
         eps_xx = a_x[..., dy, :, :].movedim(-2, -4).movedim(-1, -2)
         eps_xx = eps_xx.flatten(-4, -3).flatten(-2, -1)
 
         # eps_yy: per x-sample Toeplitz of 1/eps along y, inverted, then Laurent along x
         coef_y = torch.fft.fft(inv_material, dim=-1) / ny  # [..., nx, ny]
-        a_y = torch.linalg.inv(coef_y[..., dy])  # [..., nx, My, My]
+        a_y = self._inv_conv(coef_y[..., dy])  # [..., nx, My, My]
         a_y = torch.fft.fft(a_y, dim=-3) / nx  # [..., p, My, My]
         eps_yy = a_y[..., dx, :, :].transpose(-3, -2)
         eps_yy = eps_yy.flatten(-4, -3).flatten(-2, -1)
@@ -2236,7 +2236,7 @@ class rcwa:
         # H to E transformation matirx
         P_tmp = torch.matmul(
             _vcat((self.Kx_norm, self.Ky_norm)),
-            torch.linalg.inv(self.eps_conv[-1]),
+            self._inv_conv(self.eps_conv[-1]),
         )
         self.P.append(
             _hcat(
@@ -2422,6 +2422,21 @@ class rcwa:
                 self.Cb[-1][..., 2 * self.order_N :, :],
             )
         )
+
+    def _inv_conv(self, conv):
+        # A permittivity convolution (Toeplitz) matrix is exactly singular when
+        # eps (or 1/eps) averages to 0, e.g. a lossless metal with eps_m = -eps_d
+        # at 50 % fill.
+        conv_inv, info = torch.linalg.inv_ex(conv)
+        if torch.any(info != 0):
+            raise torch.linalg.LinAlgError(
+                f"Layer {self.layer_N - 1}: the permittivity convolution matrix is "
+                "singular. Likely cause: eps (or 1/eps) averages to 0 over the unit "
+                "cell or along a grid line, e.g. a lossless metal with eps_m = -eps_d "
+                "at 50 % fill. Change the fill factor slightly or give the metal a "
+                "small imaginary part."
+            )
+        return conv_inv
 
     def _raise_singular_P(self, info):
         # P (H to E) is singular when a mode has kz = 0 in this layer. In a

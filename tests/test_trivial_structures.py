@@ -439,6 +439,25 @@ def test_half_space_rayleigh_anomaly_raises_clear_error(device):
         sim.set_incident_angle(inc_ang=0.0, azi_ang=0.0)
 
 
+@pytest.mark.parametrize("factorization", ["laurent", "li"])
+def test_singular_eps_conv_raises_clear_error(factorization, device):
+    """eps_m = -eps_d at 50 % fill averages to 0: singular Toeplitz matrix (#109)."""
+    sim = solwa.rcwa(
+        freq=1 / 1.5,
+        order=[5, 5],
+        L=[1.0, 1.0],
+        dtype=torch.complex128,
+        device=device,
+        factorization=factorization,
+    )
+    sim.add_input_layer(eps=1.0)
+    sim.set_incident_angle(inc_ang=0.0, azi_ang=0.0)
+    eps = torch.full((100, 100), 2.25, dtype=torch.complex128, device=device)
+    eps[:50] = -2.25
+    with pytest.raises(torch.linalg.LinAlgError, match=r"Layer 0.*convolution"):
+        sim.add_layer(thickness=0.3, eps=eps)
+
+
 @pytest.mark.parametrize("dtype", [torch.complex64, torch.complex128])
 def test_add_layer_accepts_int_and_complex_scalars(dtype, device):
     """Homogeneous eps/mu as int, float, complex, list or tensor agree (#73)."""
